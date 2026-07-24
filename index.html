@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vectorizer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --surface: #121518;
+      --surface-strong: #1f242c;
+      --border: rgba(255,255,255,.08);
+      --text: #f1f2f5;
+      --muted: #9aa1b3;
+      --accent: #d9d74a;
+      --accent-soft: #666d33;
+      --shadow: 0 24px 80px rgba(0,0,0,.35);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top, rgba(217,215,90,.12), transparent 28%),
+                linear-gradient(180deg, #07080b 0%, #0b0d10 100%);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      padding: 32px;
+    }
+
+    main {
+      width: min(1120px, 100%);
+      display: grid;
+      gap: 24px;
+    }
+
+    header {
+      text-align: center;
+      max-width: 760px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2.5rem, 4vw, 4rem);
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+
+    p.lead {
+      margin: 18px auto 0;
+      color: var(--muted);
+      line-height: 1.7;
+      max-width: 680px;
+      font-size: 1.05rem;
+    }
+
+    .panel {
+      background: rgba(18,21,24,.95);
+      border: 1px solid rgba(255,255,255,.07);
+      box-shadow: var(--shadow);
+      border-radius: 28px;
+      overflow: hidden;
+      padding: 24px;
+    }
+
+    .dropzone {
+      border: 2px dashed rgba(217,215,90,.45);
+      border-radius: 22px;
+      min-height: 320px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 32px;
+      transition: background .2s ease, border-color .2s ease;
+      background: rgba(217,215,90,.02);
+    }
+
+    .dropzone.dragover {
+      background: rgba(217,215,90,.12);
+      border-color: rgba(217,215,90,.8);
+    }
+
+    .dropzone strong {
+      display: block;
+      font-size: 1.3rem;
+      margin-bottom: 10px;
+    }
+
+    .dropzone span {
+      color: var(--muted);
+    }
+
+    .controls {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1fr;
+    }
+
+    .control-row {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .control-row label {
+      min-width: 100px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .control-row input[type='range'] {
+      flex: 1;
+    }
+
+    .control-row output {
+      width: 45px;
+      text-align: right;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: none;
+      cursor: pointer;
+      border-radius: 14px;
+      padding: 14px 18px;
+      background: linear-gradient(135deg, #d9d74a 0%, #e7e9a2 100%);
+      color: #111;
+      font-weight: 700;
+      transition: transform .16s ease, filter .16s ease;
+    }
+
+    button:hover { transform: translateY(-1px); filter: brightness(1.02); }
+
+    button.secondary {
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+    }
+
+    .preview-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+      gap: 20px;
+    }
+
+    .preview-card {
+      border-radius: 24px;
+      background: #0f1318;
+      border: 1px solid rgba(255,255,255,.06);
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .preview-card h2 {
+      margin: 0;
+      font-size: 1rem;
+      letter-spacing: .01em;
+    }
+
+    .preview-box {
+      background: #0b0d10;
+      border-radius: 20px;
+      min-height: 320px;
+      overflow: hidden;
+      position: relative;
+      border: 1px solid rgba(255,255,255,.05);
+    }
+
+    .preview-box canvas,
+    .preview-box svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+      background: transparent;
+    }
+
+    .meta {
+      display: grid;
+      gap: 8px;
+      font-size: 0.94rem;
+    }
+
+    .meta div { color: var(--muted); }
+
+    .hint { color: var(--muted); font-size: 0.95rem; }
+
+    pre {
+      margin: 0;
+      overflow: auto;
+      max-height: 240px;
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(255,255,255,.04);
+      color: #d6d9e0;
+;
+    }
+
+    @media (max-width: 840px) {
+      .preview-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Image to Vector</h1>
+      <p class="lead">Drop a PNG or JPG image and convert it into a clean SVG shape in the browser. Adjust threshold and detail for a faster or more precise trace.</p>
+    </header>
+
+    <section class="panel">
+      <div class="dropzone" id="dropzone">
+        <div>
+          <strong>Drop your image here</strong>
+          <span>or click to choose a file, paste an image, or drag and drop.</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="control-row">
+          <label for="detailRange">Detail</label>
+          <input id="detailRange" type="range" min="1" max="6" value="4" />
+          <output id="detailValue">4</output>
+        </div>
+        <div class="control-row">
+          <label for="thresholdRange">Threshold</label>
+          <input id="thresholdRange" type="range" min="0" max="255" value="130" />
+          <output id="thresholdValue">130</output>
+        </div>
+        <div class="actions">
+          <button id="processButton">Process image</button>
+          <button type="button" class="secondary" id="downloadButton">Download SVG</button>
+          <button type="button" class="secondary" id="copyButton">Copy SVG</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="preview-grid">
+      <article class="preview-card">
+        <h2>Input preview</h2>
+        <div class="preview-box" id="inputPreview"></div>
+        <div class="meta" id="inputMeta"><div>No image loaded yet.</div></div>
+      </article>
+
+      <article class="preview-card">
+        <h2>SVG output</h2>
+        <div class="preview-box" id="svgPreview"></div>
+        <div class="meta" id="svgMeta"><div>Processed vector preview appears here.</div></div>
+      </article>
+    </div>
+
+    <section class="panel">
+      <h2>SVG source</h2>
+      <pre id="svgSource">&lt;svg&gt;...&lt;/svg&gt;</pre>
+    </section>
+  </main>
+
+  <script>
+    const dropzone = document.getElementById('dropzone');
+    const inputPreview = document.getElementById('inputPreview');
+    const svgPreview = document.getElementById('svgPreview');
+    const svgSource = document.getElementById('svgSource');
+    const inputMeta = document.getElementById('inputMeta');
+    const svgMeta = document.getElementById('svgMeta');
+    const detailRange = document.getElementById('detailRange');
+    const thresholdRange = document.getElementById('thresholdRange');
+    const detailValue = document.getElementById('detailValue');
+    const thresholdValue = document.getElementById('thresholdValue');
+    const processButton = document.getElementById('processButton');
+    const downloadButton = document.getElementById('downloadButton');
+    const copyButton = document.getElementById('copyButton');
+
+    let activeImage = null;
+    let lastSvg = '';
+
+    detailValue.textContent = detailRange.value;
+    thresholdValue.textContent = thresholdRange.value;
+
+    detailRange.addEventListener('input', () => detailValue.textContent = detailRange.value);
+    thresholdRange.addEventListener('input', () => thresholdValue.textContent = thresholdRange.value);
+
+    dropzone.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/png, image/jpeg, image/jpg';
+      input.onchange = () => {
+        if (input.files?.[0]) loadFile(input.files[0]);
+      };
+      input.click();
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropzone.addEventListener(eventName, e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.add('dragover');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropzone.addEventListener(eventName, e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove('dragover');
+      });
+    });
+
+    dropzone.addEventListener('drop', e => {
+      const file = e.dataTransfer?.files?.[0];
+      if (file) loadFile(file);
+    });
+
+    window.addEventListener('paste', e => {
+      const items = Array.from(e.clipboardData?.items || []);
+      const imageItem = items.find(item => item.type.startsWith('image/'));
+      if (imageItem) {
+        const blob = imageItem.getAsFile();
+        if (blob) loadFile(blob);
+      }
+    });
+
+    processButton.addEventListener('click', () => {
+      if (!activeImage) return alert('Load an image first.');
+      generateVector(activeImage);
+    });
+
+    downloadButton.addEventListener('click', () => {
+      if (!lastSvg) return alert('Generate an SVG first.');
+      const blob = new Blob([lastSvg], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'vectorized-image.svg';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    });
+
+    copyButton.addEventListener('click', async () => {
+      if (!lastSvg) return alert('Generate an SVG first.');
+      try {
+        await navigator.clipboard.writeText(lastSvg);
+        alert('SVG copied to clipboard.');
+      } catch (err) {
+        alert('Copy failed — please use manual copy from the source box.');
+      }
+    });
+
+    function loadFile(file) {
+      if (!file.type.startsWith('image/')) return alert('Please select an image file.');
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          activeImage = img;
+          renderInputPreview(img, file);
+          generateVector(img);
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function renderInputPreview(img, file) {
+      inputPreview.innerHTML = '';
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const maxDimension = 880;
+      const ratio = Math.min(1, maxDimension / Math.max(img.width, img.height));
+      canvas.width = img.width * ratio;
+      canvas.height = img.height * ratio;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      inputPreview.appendChild(canvas);
+      inputMeta.innerHTML = `<div>${file.name}</div><div>Size: ${img.width}×${img.height}px</div><div>Loaded for vectorizing</div>`;
+    }
+
+    function generateVector(image) {
+      setStatus('Tracing...');
+      const detailLevel = Number(detailRange.value);
+      const threshold = Number(thresholdRange.value);
+      const fitWidth = 80 * detailLevel;
+      const fitHeight = 80 * detailLevel;
+      const scale = Math.min(1, Math.min(fitWidth / image.width, fitHeight / image.height));
+      const width = Math.max(24, Math.round(image.width * scale));
+      const height = Math.max(24, Math.round(image.height * scale));
+      const workCanvas = document.createElement('canvas');
+      const workCtx = workCanvas.getContext('2d');
+      workCanvas.width = width;
+      workCanvas.height = height;
+      workCtx.drawImage(image, 0, 0, width, height);
+      const imageData = workCtx.getImageData(0, 0, width, height);
+      const binary = createBinaryGrid(imageData, threshold);
+      const paths = traceContours(binary, width, height);
+      const svg = buildSvg(paths, width, height);
+      lastSvg = svg;
+      svgSource.textContent = svg;
+      renderSvgPreview(svg, width, height);
+      svgMeta.innerHTML = `<div>SVG size: ${Math.max(1, width)}×${Math.max(1, height)} viewBox</div><div>${paths.length} vector shapes generated</div>`;
+      setStatus('Ready');
+    }
+
+    function setStatus(message) {
+      processButton.textContent = message === 'Tracing...' ? 'Tracing...' : 'Process image';
+    }
+
+    function createBinaryGrid(imageData, threshold) {
+      const { data, width, height } = imageData;
+      const grid = new Uint8Array(width * height);
+      for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        grid[p] = lum < threshold ? 1 : 0;
+      }
+      return grid;
+    }
+
+    const EDGE_LOOKUP = {
+      1: [[0,0.5, 0.5,1]],
+      2: [[0.5,1, 1,0.5]],
+      3: [[0,0.5, 1,0.5]],
+      4: [[0.5,0, 1,0.5]],
+      5: [[0,0.5, 0.5,0], [0.5,1, 1,0.5]],
+      6: [[0.5,1, 0.5,0]],
+      7: [[0,0.5, 0.5,0]],
+      8: [[0.5,0, 0,0.5]],
+      9: [[0.5,0, 0.5,1]],
+      10: [[0.5,0, 1,0.5], [0,0.5, 0.5,1]],
+      11: [[0.5,0, 1,0.5]],
+      12: [[1,0.5, 0,0.5]],
+      13: [[0.5,1, 1,0.5]],
+      14: [[0,0.5, 0.5,1]]
+    };
+
+    function traceContours(grid, width, height) {
+      const segments = [];
+      for (let y = 0; y < height - 1; y++) {
+        for (let x = 0; x < width - 1; x++) {
+          const idx = y * width + x;
+          const tl = grid[idx];
+          const tr = grid[idx + 1];
+          const bl = grid[idx + width];
+          const br = grid[idx + width + 1];
+          const code = tl * 1 + tr * 2 + br * 4 + bl * 8;
+          const edges = EDGE_LOOKUP[code];
+          if (!edges) continue;
+          for (const edge of edges) {
+            const p1 = { x: x + edge[0], y: y + edge[1] };
+            const p2 = { x: x + edge[2], y: y + edge[3] };
+            segments.push({ a: p1, b: p2 });
+          }
+        }
+      }
+      return buildLoopsFromSegments(segments);
+    }
+
+    function buildLoopsFromSegments(segments) {
+      const pointKey = pt => `${pt.x.toFixed(4)},${pt.y.toFixed(4)}`;
+      const adjacency = new Map();
+      const used = new Array(segments.length).fill(false);
+      segments.forEach((seg, index) => {
+        const keyA = pointKey(seg.a);
+        const keyB = pointKey(seg.b);
+        if (!adjacency.has(keyA)) adjacency.set(keyA, []);
+        if (!adjacency.has(keyB)) adjacency.set(keyB, []);
+        adjacency.get(keyA).push({ index, point: seg.b });
+        adjacency.get(keyB).push({ index, point: seg.a });
+      });
+
+      const loops = [];
+      function findNext(currentKey, prevIndex) {
+        const neighbors = adjacency.get(currentKey) || [];
+        for (const neighbor of neighbors) {
+          if (neighbor.index !== prevIndex && !used[neighbor.index]) return neighbor;
+        }
+        return null;
+      }
+
+      for (let startIndex = 0; startIndex < segments.length; startIndex++) {
+        if (used[startIndex]) continue;
+        let seg = segments[startIndex];
+        used[startIndex] = true;
+        const loop = [seg.a, seg.b];
+        let currentKey = pointKey(seg.b);
+        let prevIndex = startIndex;
+        while (true) {
+          const next = findNext(currentKey, prevIndex);
+          if (!next) break;
+          const nextPoint = next.point;
+          loop.push(nextPoint);
+          prevIndex = next.index;
+          used[prevIndex] = true;
+          currentKey = pointKey(nextPoint);
+          if (currentKey === pointKey(loop[0])) break;
+        }
+        if (loop.length > 2) {
+          loops.push(simplifyLoop(loop));
+        }
+      }
+      return loops;
+    }
+
+    function simplifyLoop(points) {
+      const simplified = ramerDouglasPeucker(points, 0.5);
+      if (simplified.length > 2 && distance(simplified[0], simplified[simplified.length - 1]) < 0.001) {
+        simplified.pop();
+      }
+      return simplified;
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function ramerDouglasPeucker(points, epsilon) {
+      if (points.length < 3) return points.slice();
+      let maxDist = 0;
+      let index = 0;
+      const start = points[0];
+      const end = points[points.length - 1];
+      for (let i = 1; i < points.length - 1; i++) {
+        const d = perpendicularDistance(points[i], start, end);
+        if (d > maxDist) {
+          index = i;
+          maxDist = d;
+        }
+      }
+      if (maxDist > epsilon) {
+        const left = ramerDouglasPeucker(points.slice(0, index + 1), epsilon);
+        const right = ramerDouglasPeucker(points.slice(index), epsilon);
+        return left.slice(0, -1).concat(right);
+      }
+      return [start, end];
+    }
+
+    function perpendicularDistance(point, lineStart, lineEnd) {
+      const dx = lineEnd.x - lineStart.x;
+      const dy = lineEnd.y - lineStart.y;
+      if (dx === 0 && dy === 0) return distance(point, lineStart);
+      const t = ((point.x - lineStart.x) * dx + (point.y - lineStart.y) * dy) / (dx * dx + dy * dy);
+      const projection = { x: lineStart.x + dx * t, y: lineStart.y + dy * t };
+      return distance(point, projection);
+    }
+
+    function buildSvg(paths, width, height) {
+      const pathStrings = paths.map(points => {
+        if (!points.length) return '';
+        const commands = points.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`);
+        return `${commands.join(' ')} Z`;
+      }).join(' ');
+      const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">\n  <rect width="100%" height="100%" fill="white"/>\n  <path d="${pathStrings}" fill="black" stroke="none" fill-rule="evenodd"/>\n</svg>`;
+      return svg;
+    }
+
+    function renderSvgPreview(svg, width, height) {
+      svgPreview.innerHTML = svg;
+      const svgNode = svgPreview.querySelector('svg');
+      if (svgNode) {
+        svgNode.style.width = '100%';
+        svgNode.style.height = '100%';
+      }
+    }
+  </script>
+</body>
+</html>
