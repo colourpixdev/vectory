@@ -3,18 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Photo-faithful SVG</title>
+  <title>Editable Vector Paths</title>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #0b0d10;
       --surface: #121518;
       --surface-strong: #1f242c;
       --border: rgba(255,255,255,.08);
       --text: #f1f2f5;
       --muted: #9aa1b3;
-      --accent: #d9d74a;
-      --accent-soft: #666d33;
+      --accent: #84d89d;
       --shadow: 0 24px 80px rgba(0,0,0,.35);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
@@ -23,7 +21,7 @@
     body {
       margin: 0;
       min-height: 100vh;
-      background: radial-gradient(circle at top, rgba(217,215,90,.12), transparent 28%),
+      background: radial-gradient(circle at top, rgba(132,216,157,.12), transparent 28%),
                 linear-gradient(180deg, #07080b 0%, #0b0d10 100%);
       color: var(--text);
       display: flex;
@@ -58,6 +56,17 @@
       font-size: 1.05rem;
     }
 
+    .mode-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 16px;
+      color: var(--text);
+      font-weight: 700;
+      text-decoration-color: var(--accent);
+      text-underline-offset: 4px;
+    }
+
     .panel {
       background: rgba(18,21,24,.95);
       border: 1px solid rgba(255,255,255,.07);
@@ -68,7 +77,7 @@
     }
 
     .dropzone {
-      border: 2px dashed rgba(217,215,90,.45);
+      border: 2px dashed rgba(132,216,157,.45);
       border-radius: 22px;
       min-height: 320px;
       display: grid;
@@ -76,12 +85,12 @@
       text-align: center;
       padding: 32px;
       transition: background .2s ease, border-color .2s ease;
-      background: rgba(217,215,90,.02);
+      background: rgba(132,216,157,.02);
     }
 
     .dropzone.dragover {
-      background: rgba(217,215,90,.12);
-      border-color: rgba(217,215,90,.8);
+      background: rgba(132,216,157,.12);
+      border-color: rgba(132,216,157,.8);
     }
 
     .dropzone strong {
@@ -90,9 +99,7 @@
       margin-bottom: 10px;
     }
 
-    .dropzone span {
-      color: var(--muted);
-    }
+    .dropzone span { color: var(--muted); }
 
     .controls {
       display: grid;
@@ -113,9 +120,7 @@
       font-size: 0.95rem;
     }
 
-    .control-row input[type='range'] {
-      flex: 1;
-    }
+    .control-row input[type='range'] { flex: 1; }
 
     .control-row output {
       width: 45px;
@@ -135,7 +140,7 @@
       cursor: pointer;
       border-radius: 14px;
       padding: 14px 18px;
-      background: linear-gradient(135deg, #d9d74a 0%, #e7e9a2 100%);
+      background: linear-gradient(135deg, #84d89d 0%, #c7f0b5 100%);
       color: #111;
       font-weight: 700;
       transition: transform .16s ease, filter .16s ease;
@@ -146,17 +151,6 @@
     button.secondary {
       background: rgba(255,255,255,.06);
       color: var(--text);
-    }
-
-    .mode-link {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      margin-top: 16px;
-      color: var(--text);
-      font-weight: 700;
-      text-decoration-color: var(--accent);
-      text-underline-offset: 4px;
     }
 
     .preview-grid {
@@ -206,8 +200,6 @@
 
     .meta div { color: var(--muted); }
 
-    .hint { color: var(--muted); font-size: 0.95rem; }
-
     pre {
       margin: 0;
       overflow: auto;
@@ -216,10 +208,10 @@
       border-radius: 18px;
       background: rgba(255,255,255,.04);
       color: #d6d9e0;
-;
     }
 
     @media (max-width: 840px) {
+      body { padding: 20px; }
       .preview-grid { grid-template-columns: 1fr; }
     }
   </style>
@@ -227,9 +219,9 @@
 <body>
   <main>
     <header>
-      <h1>Photo-faithful SVG</h1>
-      <p class="lead">Embed the original image inside an SVG without altering a single pixel.</p>
-      <a class="mode-link" href="editable-paths.html">Open editable vector paths</a>
+      <h1>Editable Vector Paths</h1>
+      <p class="lead">Trace a photo into high-detail editable spline paths with VTracer.</p>
+      <a class="mode-link" href="index.html">Open photo-faithful SVG</a>
     </header>
 
     <section class="panel">
@@ -241,8 +233,13 @@
       </div>
 
       <div class="controls">
+        <div class="control-row">
+          <label for="detailRange">Trace detail</label>
+          <input id="detailRange" type="range" min="1" max="6" value="6" />
+          <output id="detailValue">6</output>
+        </div>
         <div class="actions">
-          <button id="processButton">Create exact SVG</button>
+          <button id="processButton">Trace image</button>
           <button type="button" class="secondary" id="downloadButton">Download SVG</button>
           <button type="button" class="secondary" id="copyButton">Copy SVG</button>
         </div>
@@ -257,9 +254,9 @@
       </article>
 
       <article class="preview-card">
-        <h2>SVG output</h2>
+        <h2>Editable path output</h2>
         <div class="preview-box" id="svgPreview"></div>
-        <div class="meta" id="svgMeta"><div>Processed vector preview appears here.</div></div>
+        <div class="meta" id="svgMeta"><div>Editable SVG paths appear here.</div></div>
       </article>
     </div>
 
@@ -276,12 +273,19 @@
     const svgSource = document.getElementById('svgSource');
     const inputMeta = document.getElementById('inputMeta');
     const svgMeta = document.getElementById('svgMeta');
+    const detailRange = document.getElementById('detailRange');
+    const detailValue = document.getElementById('detailValue');
     const processButton = document.getElementById('processButton');
     const downloadButton = document.getElementById('downloadButton');
     const copyButton = document.getElementById('copyButton');
 
     let activeImage = null;
     let lastSvg = '';
+    let vTracerModule = null;
+    let processingVersion = 0;
+
+    detailValue.textContent = detailRange.value;
+    detailRange.addEventListener('input', () => detailValue.textContent = detailRange.value);
 
     dropzone.addEventListener('click', () => {
       const input = document.createElement('input');
@@ -294,38 +298,37 @@
     });
 
     ['dragenter', 'dragover'].forEach(eventName => {
-      dropzone.addEventListener(eventName, e => {
-        e.preventDefault();
-        e.stopPropagation();
+      dropzone.addEventListener(eventName, event => {
+        event.preventDefault();
+        event.stopPropagation();
         dropzone.classList.add('dragover');
       });
     });
 
     ['dragleave', 'drop'].forEach(eventName => {
-      dropzone.addEventListener(eventName, e => {
-        e.preventDefault();
-        e.stopPropagation();
+      dropzone.addEventListener(eventName, event => {
+        event.preventDefault();
+        event.stopPropagation();
         dropzone.classList.remove('dragover');
       });
     });
 
-    dropzone.addEventListener('drop', e => {
-      const file = e.dataTransfer?.files?.[0];
+    dropzone.addEventListener('drop', event => {
+      const file = event.dataTransfer?.files?.[0];
       if (file) loadFile(file);
     });
 
-    window.addEventListener('paste', e => {
-      const items = Array.from(e.clipboardData?.items || []);
+    window.addEventListener('paste', event => {
+      const items = Array.from(event.clipboardData?.items || []);
       const imageItem = items.find(item => item.type.startsWith('image/'));
-      if (imageItem) {
-        const blob = imageItem.getAsFile();
-        if (blob) loadFile(blob);
-      }
+      if (!imageItem) return;
+      const file = imageItem.getAsFile();
+      if (file) loadFile(file);
     });
 
     processButton.addEventListener('click', () => {
       if (!activeImage) return alert('Load an image first.');
-      generateVector(activeImage);
+      void traceImage(activeImage);
     });
 
     downloadButton.addEventListener('click', () => {
@@ -334,7 +337,7 @@
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'vectorized-image.svg';
+      link.download = 'editable-vector-paths.svg';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -346,8 +349,8 @@
       try {
         await navigator.clipboard.writeText(lastSvg);
         alert('SVG copied to clipboard.');
-      } catch (err) {
-        alert('Copy failed — please use manual copy from the source box.');
+      } catch (error) {
+        alert('Copy failed. Use the SVG source box instead.');
       }
     });
 
@@ -355,56 +358,108 @@
       if (!file.type.startsWith('image/')) return alert('Please select an image file.');
       const reader = new FileReader();
       reader.onload = () => {
-        const img = new Image();
-        img.onload = () => {
-          activeImage = img;
-          renderInputPreview(img, file);
-          generateVector(img);
+        const image = new Image();
+        image.onload = () => {
+          activeImage = image;
+          renderInputPreview(image, file);
+          void traceImage(image);
         };
-        img.src = reader.result;
+        image.src = reader.result;
       };
       reader.readAsDataURL(file);
     }
 
-    function renderInputPreview(img, file) {
+    function renderInputPreview(image, file) {
       inputPreview.innerHTML = '';
       const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
+      const context = canvas.getContext('2d');
       const maxDimension = 880;
-      const ratio = Math.min(1, maxDimension / Math.max(img.width, img.height));
-      canvas.width = img.width * ratio;
-      canvas.height = img.height * ratio;
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const ratio = Math.min(1, maxDimension / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+      canvas.width = Math.round((image.naturalWidth || image.width) * ratio);
+      canvas.height = Math.round((image.naturalHeight || image.height) * ratio);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
       inputPreview.appendChild(canvas);
-      inputMeta.innerHTML = `<div>${file.name}</div><div>Size: ${img.width}×${img.height}px</div><div>Loaded for exact SVG export</div>`;
+      inputMeta.innerHTML = `<div>${file.name}</div><div>Size: ${image.naturalWidth || image.width}x${image.naturalHeight || image.height}px</div><div>Loaded for path tracing</div>`;
     }
 
-    function generateVector(image) {
-      setStatus('Creating...');
-      const result = buildPhotoFaithfulSvg(image);
-      lastSvg = result.svg;
-      svgSource.textContent = result.svg;
-      renderSvgPreview(result.svg);
-      svgMeta.innerHTML = result.meta;
-      setStatus('Ready');
+    async function traceImage(image) {
+      const version = ++processingVersion;
+      setStatus('Tracing...');
+      try {
+        const result = await traceWithVTracer(image, Number(detailRange.value));
+        if (version !== processingVersion) return;
+        lastSvg = result.svg;
+        svgSource.textContent = result.svg;
+        renderSvgPreview(result.svg);
+        svgMeta.innerHTML = result.meta;
+      } catch (error) {
+        if (version !== processingVersion) return;
+        console.error(error);
+        svgPreview.innerHTML = '';
+        svgMeta.innerHTML = '<div>Tracing failed. Try a smaller image or reload the page.</div>';
+      } finally {
+        if (version === processingVersion) setStatus('Ready');
+      }
     }
 
-    function setStatus(message) {
-      processButton.textContent = message === 'Creating...' ? 'Creating...' : 'Create exact SVG';
-    }
-
-    function buildPhotoFaithfulSvg(image) {
-      const width = image.naturalWidth || image.width;
-      const height = image.naturalHeight || image.height;
-      const source = escapeXmlAttribute(image.currentSrc || image.src);
+    async function traceWithVTracer(image, detailLevel) {
+      const traceProfiles = [
+        { maxDimension: 640, layerDifference: 48, filterSpeckle: 100, maxIterations: 10, lengthThreshold: 4.5 },
+        { maxDimension: 1024, layerDifference: 32, filterSpeckle: 64, maxIterations: 12, lengthThreshold: 4 },
+        { maxDimension: 1536, layerDifference: 16, filterSpeckle: 16, maxIterations: 16, lengthThreshold: 3.75 },
+        { maxDimension: 2048, layerDifference: 8, filterSpeckle: 4, maxIterations: 20, lengthThreshold: 3.5 },
+        { maxDimension: 3072, layerDifference: 6, filterSpeckle: 2, maxIterations: 20, lengthThreshold: 3.5 },
+        { maxDimension: 4096, layerDifference: 4, filterSpeckle: 1, maxIterations: 20, lengthThreshold: 3.5 }
+      ];
+      const profile = traceProfiles[detailLevel - 1];
+      const imageWidth = image.naturalWidth || image.width;
+      const imageHeight = image.naturalHeight || image.height;
+      const scale = Math.min(1, profile.maxDimension / Math.max(imageWidth, imageHeight));
+      const width = Math.max(24, Math.round(imageWidth * scale));
+      const height = Math.max(24, Math.round(imageHeight * scale));
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      canvas.width = width;
+      canvas.height = height;
+      context.drawImage(image, 0, 0, width, height);
+      const imageData = context.getImageData(0, 0, width, height);
+      const tracer = await loadVTracer();
+      const pixels = new Uint8Array(imageData.data.buffer, imageData.data.byteOffset, imageData.data.byteLength);
+      const svg = tracer.to_svg(pixels, width, height, {
+        binary: false,
+        mode: 'spline',
+        hierarchical: 'stacked',
+        cornerThreshold: 180,
+        lengthThreshold: profile.lengthThreshold,
+        maxIterations: profile.maxIterations,
+        spliceThreshold: 45,
+        filterSpeckle: profile.filterSpeckle,
+        colorPrecision: 0,
+        layerDifference: profile.layerDifference,
+        pathPrecision: 2
+      });
+      const pathCount = (svg.match(/<path\b/g) || []).length;
       return {
-        svg: `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">\n  <title>Photo-faithful SVG</title>\n  <image width="${width}" height="${height}" href="${source}"/>\n</svg>`,
-        meta: `<div>SVG size: ${width}×${height} viewBox</div><div>Original image pixels embedded exactly</div><div>Photo-faithful SVG</div>`
+        svg,
+        meta: `<div>SVG size: ${width}x${height} viewBox</div><div>${pathCount} editable spline paths generated</div><div>VTracer high-fidelity path trace</div>`
       };
     }
 
-    function escapeXmlAttribute(value) {
-      return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    async function loadVTracer() {
+      if (!vTracerModule) {
+        vTracerModule = import('./vtracer.js').then(async module => {
+          await module.default({ module_or_path: new URL('./vtracer.wasm', window.location.href) });
+          return module;
+        }).catch(error => {
+          vTracerModule = null;
+          throw error;
+        });
+      }
+      return vTracerModule;
+    }
+
+    function setStatus(message) {
+      processButton.textContent = message === 'Tracing...' ? 'Tracing...' : 'Trace image';
     }
 
     function renderSvgPreview(svg) {
