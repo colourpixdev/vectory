@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Editable Vector Paths</title>
+  <title>Vector Tracer</title>
   <style>
     :root {
       color-scheme: dark;
@@ -54,17 +54,6 @@
       line-height: 1.7;
       max-width: 680px;
       font-size: 1.05rem;
-    }
-
-    .mode-link {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      margin-top: 16px;
-      color: var(--text);
-      font-weight: 700;
-      text-decoration-color: var(--accent);
-      text-underline-offset: 4px;
     }
 
     .panel {
@@ -219,9 +208,8 @@
 <body>
   <main>
     <header>
-      <h1>Editable Vector Paths</h1>
-      <p class="lead">Trace a photo into high-detail editable spline paths with VTracer.</p>
-      <a class="mode-link" href="index.html">Open photo-faithful SVG</a>
+      <h1>Vector Tracer</h1>
+      <p class="lead">Trace a photo into high-detail, editable SVG paths with VTracer.</p>
     </header>
 
     <section class="panel">
@@ -234,9 +222,9 @@
 
       <div class="controls">
         <div class="control-row">
-          <label for="detailRange">Trace detail</label>
-          <input id="detailRange" type="range" min="1" max="6" value="6" />
-          <output id="detailValue">6</output>
+          <label for="qualityRange">Fidelity target</label>
+          <input id="qualityRange" type="range" min="50" max="95" step="5" value="85" />
+          <output id="qualityValue">85%</output>
         </div>
         <div class="actions">
           <button id="processButton">Trace image</button>
@@ -273,8 +261,8 @@
     const svgSource = document.getElementById('svgSource');
     const inputMeta = document.getElementById('inputMeta');
     const svgMeta = document.getElementById('svgMeta');
-    const detailRange = document.getElementById('detailRange');
-    const detailValue = document.getElementById('detailValue');
+    const qualityRange = document.getElementById('qualityRange');
+    const qualityValue = document.getElementById('qualityValue');
     const processButton = document.getElementById('processButton');
     const downloadButton = document.getElementById('downloadButton');
     const copyButton = document.getElementById('copyButton');
@@ -284,8 +272,8 @@
     let vTracerModule = null;
     let processingVersion = 0;
 
-    detailValue.textContent = detailRange.value;
-    detailRange.addEventListener('input', () => detailValue.textContent = detailRange.value);
+    qualityValue.textContent = `${qualityRange.value}%`;
+    qualityRange.addEventListener('input', () => qualityValue.textContent = `${qualityRange.value}%`);
 
     dropzone.addEventListener('click', () => {
       const input = document.createElement('input');
@@ -386,7 +374,7 @@
       const version = ++processingVersion;
       setStatus('Tracing...');
       try {
-        const result = await traceWithVTracer(image, Number(detailRange.value));
+        const result = await traceWithVTracer(image, Number(qualityRange.value));
         if (version !== processingVersion) return;
         lastSvg = result.svg;
         svgSource.textContent = result.svg;
@@ -402,16 +390,20 @@
       }
     }
 
-    async function traceWithVTracer(image, detailLevel) {
-      const traceProfiles = [
-        { maxDimension: 640, layerDifference: 48, filterSpeckle: 100, maxIterations: 10, lengthThreshold: 4.5 },
-        { maxDimension: 1024, layerDifference: 32, filterSpeckle: 64, maxIterations: 12, lengthThreshold: 4 },
-        { maxDimension: 1536, layerDifference: 16, filterSpeckle: 16, maxIterations: 16, lengthThreshold: 3.75 },
-        { maxDimension: 2048, layerDifference: 8, filterSpeckle: 4, maxIterations: 20, lengthThreshold: 3.5 },
-        { maxDimension: 3072, layerDifference: 6, filterSpeckle: 2, maxIterations: 20, lengthThreshold: 3.5 },
-        { maxDimension: 4096, layerDifference: 4, filterSpeckle: 1, maxIterations: 20, lengthThreshold: 3.5 }
-      ];
-      const profile = traceProfiles[detailLevel - 1];
+    async function traceWithVTracer(image, qualityTarget) {
+      const traceProfiles = {
+        50: { maxDimension: 1024, colorPrecision: 4, layerDifference: 32, filterSpeckle: 64, cornerThreshold: 80, lengthThreshold: 4.5, maxIterations: 10, spliceThreshold: 45, pathPrecision: 2 },
+        55: { maxDimension: 1536, colorPrecision: 5, layerDifference: 24, filterSpeckle: 32, cornerThreshold: 75, lengthThreshold: 4, maxIterations: 12, spliceThreshold: 40, pathPrecision: 2 },
+        60: { maxDimension: 2048, colorPrecision: 5, layerDifference: 16, filterSpeckle: 16, cornerThreshold: 70, lengthThreshold: 3.75, maxIterations: 14, spliceThreshold: 35, pathPrecision: 3 },
+        65: { maxDimension: 2560, colorPrecision: 6, layerDifference: 12, filterSpeckle: 8, cornerThreshold: 65, lengthThreshold: 3.5, maxIterations: 16, spliceThreshold: 32, pathPrecision: 3 },
+        70: { maxDimension: 3072, colorPrecision: 6, layerDifference: 8, filterSpeckle: 4, cornerThreshold: 60, lengthThreshold: 3.25, maxIterations: 18, spliceThreshold: 30, pathPrecision: 3 },
+        75: { maxDimension: 3584, colorPrecision: 6, layerDifference: 6, filterSpeckle: 2, cornerThreshold: 55, lengthThreshold: 3, maxIterations: 20, spliceThreshold: 28, pathPrecision: 3 },
+        80: { maxDimension: 3840, colorPrecision: 7, layerDifference: 4, filterSpeckle: 1, cornerThreshold: 52, lengthThreshold: 2.75, maxIterations: 20, spliceThreshold: 25, pathPrecision: 4 },
+        85: { maxDimension: 4096, colorPrecision: 7, layerDifference: 2, filterSpeckle: 0, cornerThreshold: 50, lengthThreshold: 2.5, maxIterations: 20, spliceThreshold: 22, pathPrecision: 4 },
+        90: { maxDimension: 4608, colorPrecision: 8, layerDifference: 1, filterSpeckle: 0, cornerThreshold: 45, lengthThreshold: 2.25, maxIterations: 24, spliceThreshold: 20, pathPrecision: 4 },
+        95: { maxDimension: 5120, colorPrecision: 8, layerDifference: 1, filterSpeckle: 0, cornerThreshold: 40, lengthThreshold: 2, maxIterations: 24, spliceThreshold: 18, pathPrecision: 5 }
+      };
+      const profile = traceProfiles[qualityTarget] || traceProfiles[85];
       const imageWidth = image.naturalWidth || image.width;
       const imageHeight = image.naturalHeight || image.height;
       const scale = Math.min(1, profile.maxDimension / Math.max(imageWidth, imageHeight));
@@ -429,19 +421,19 @@
         binary: false,
         mode: 'spline',
         hierarchical: 'stacked',
-        cornerThreshold: 180,
+        cornerThreshold: profile.cornerThreshold,
         lengthThreshold: profile.lengthThreshold,
         maxIterations: profile.maxIterations,
-        spliceThreshold: 45,
+        spliceThreshold: profile.spliceThreshold,
         filterSpeckle: profile.filterSpeckle,
-        colorPrecision: 0,
+        colorPrecision: profile.colorPrecision,
         layerDifference: profile.layerDifference,
-        pathPrecision: 2
+        pathPrecision: profile.pathPrecision
       });
       const pathCount = (svg.match(/<path\b/g) || []).length;
       return {
         svg,
-        meta: `<div>SVG size: ${width}x${height} viewBox</div><div>${pathCount} editable spline paths generated</div><div>VTracer high-fidelity path trace</div>`
+        meta: `<div>SVG size: ${width}x${height} viewBox</div><div>${pathCount} editable spline paths generated</div><div>${qualityTarget}% fidelity target</div>`
       };
     }
 
