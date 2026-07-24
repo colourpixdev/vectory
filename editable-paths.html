@@ -293,6 +293,8 @@
     const MAX_QUALITY_TRACE_PIXELS = 11000000;
     const ULTRA_QUALITY_TRACE_PIXELS = 15000000;
     const MIN_ACCEPTABLE_AUDIT_MATCH = 0.95;
+    const SEARCH_ROUNDS_STANDARD = 2;
+    const SEARCH_ROUNDS_MAX_QUALITY = 3;
 
     let activeImage = null;
     let lastSvg = '';
@@ -505,34 +507,96 @@
         pathPrecision: profile.pathPrecision
       };
 
-      const candidateConfigs = [
-        { ...baseConfig, hierarchical: 'stacked' },
-        { ...baseConfig, hierarchical: 'stacked', spliceThreshold: Math.max(18, baseConfig.spliceThreshold - 8), lengthThreshold: Math.max(1.8, baseConfig.lengthThreshold - 0.35) },
-        { ...baseConfig, hierarchical: 'stacked', spliceThreshold: Math.min(50, baseConfig.spliceThreshold + 8), lengthThreshold: baseConfig.lengthThreshold + 0.25, filterSpeckle: Math.max(0, baseConfig.filterSpeckle - 1) }
-      ];
-      if (maxQualityMode) {
-        candidateConfigs.push(
-          { ...baseConfig, hierarchical: 'cutout', spliceThreshold: Math.max(16, baseConfig.spliceThreshold - 10), lengthThreshold: Math.max(1.7, baseConfig.lengthThreshold - 0.4) },
-          { ...baseConfig, hierarchical: 'stacked', spliceThreshold: Math.max(15, baseConfig.spliceThreshold - 12), lengthThreshold: Math.max(1.65, baseConfig.lengthThreshold - 0.5), maxIterations: baseConfig.maxIterations + 4, pathPrecision: 1 }
-        );
-      }
-
-      const candidates = [];
-      for (const config of candidateConfigs) {
-        const svg = tracer.to_svg(pixels, width, height, config);
-        const audit = await measureSvgAudit(svg, imageData, width, height);
-        candidates.push({ svg, audit, config });
-      }
-
-      candidates.sort((a, b) => b.audit.overall - a.audit.overall);
-      const best = candidates[0];
+      const rounds = maxQualityMode ? SEARCH_ROUNDS_MAX_QUALITY : SEARCH_ROUNDS_STANDARD;
+      const best = await findBestTraceCandidate(tracer, pixels, width, height, imageData, baseConfig, maxQualityMode, rounds);
       const svg = best.svg;
       const pathCount = (svg.match(/<path\b/g) || []).length;
       return {
         svg,
         audit: best.audit,
-        meta: `<div>SVG size: ${width}x${height} viewBox</div><div>${pathCount} editable paths generated</div><div>${qualityTarget}% fidelity target</div><div>${maxQualityMode ? 'Max quality mode enabled' : 'Standard quality mode'}</div><div>Audited photo match: ${Math.round(best.audit.overall * 100)}%</div><div>Audit detail — color: ${Math.round(best.audit.color * 100)}%, luma: ${Math.round(best.audit.luma * 100)}%, edges: ${Math.round(best.audit.edge * 100)}%</div>`
+        meta: `<div>SVG size: ${width}x${height} viewBox</div><div>${pathCount} editable paths generated</div><div>${qualityTarget}% fidelity target</div><div>${maxQualityMode ? 'Max quality mode enabled' : 'Standard quality mode'}</div><div>Audited photo match: ${Math.round(best.audit.overall * 100)}%</div><div>Audit detail — color: ${Math.round(best.audit.color * 100)}%, luma: ${Math.round(best.audit.luma * 100)}%, edges: ${Math.round(best.audit.edge * 100)}%, richness: ${Math.round(best.audit.richness * 100)}%, smoothness: ${Math.round(best.audit.smoothness * 100)}%</div>`
       };
+    }
+
+    async function findBestTraceCandidate(tracer, pixels, width, height, imageData, baseConfig, maxQualityMode, rounds) {
+      let bestCandidate = null;
+      let frontier = buildInitialCandidateConfigs(baseConfig, maxQualityMode);
+      const seen = new Set();
+
+      for (let round = 0; round < rounds; round++) {
+        const evaluated = [];
+        for (const config of frontier) {
+          const key = getConfigKey(config);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const svg = tracer.to_svg(pixels, width, height, config);
+          const audit = await measureSvgAudit(svg, imageData, width, height);
+          evaluated.push({ svg, audit, config });
+        }
+        if (!evaluated.length) break;
+        evaluated.sort((a, b) => b.audit.overall - a.audit.overall);
+        if (!bestCandidate || evaluated[0].audit.overall > bestCandidate.audit.overall) {
+          bestCandidate = evaluated[0];
+        }
+        frontier = mutateFromTopCandidates(evaluated, maxQualityMode);
+      }
+
+      if (!bestCandidate) {
+        throw new Error('No trace candidates were produced during optimization.');
+      }
+      return bestCandidate;
+    }
+
+    function buildInitialCandidateConfigs(baseConfig, maxQualityMode) {
+      const configs = [
+        { ...baseConfig, hierarchical: 'stacked' },
+        { ...baseConfig, hierarchical: 'cutout' },
+        { ...baseConfig, hierarchical: 'stacked', spliceThreshold: Math.max(16, baseConfig.spliceThreshold - 10), lengthThreshold: Math.max(1.6, baseConfig.lengthThreshold - 0.4) },
+        { ...baseConfig, hierarchical: 'stacked', spliceThreshold: Math.min(55, baseConfig.spliceThreshold + 10), lengthThreshold: baseConfig.lengthThreshold + 0.3 }
+      ];
+      if (maxQualityMode) {
+        configs.push(
+          { ...baseConfig, hierarchical: 'cutout', layerDifference: Math.max(1, baseConfig.layerDifference - 1), filterSpeckle: Math.max(0, baseConfig.filterSpeckle - 1), maxIterations: baseConfig.maxIterations + 4 },
+          { ...baseConfig, hierarchical: 'stacked', layerDifference: Math.max(1, baseConfig.layerDifference - 2), filterSpeckle: 0, maxIterations: baseConfig.maxIterations + 6, spliceThreshold: Math.max(14, baseConfig.spliceThreshold - 12), lengthThreshold: Math.max(1.55, baseConfig.lengthThreshold - 0.5) }
+        );
+      }
+      return configs;
+    }
+
+    function mutateFromTopCandidates(evaluated, maxQualityMode) {
+      const top = evaluated.slice(0, Math.min(3, evaluated.length));
+      const mutations = [];
+      for (const entry of top) {
+        const c = entry.config;
+        mutations.push(
+          { ...c, layerDifference: Math.max(1, c.layerDifference - 1), filterSpeckle: Math.max(0, c.filterSpeckle - 1), maxIterations: c.maxIterations + 2 },
+          { ...c, layerDifference: c.layerDifference + 1, spliceThreshold: Math.min(60, c.spliceThreshold + 8), lengthThreshold: c.lengthThreshold + 0.2 },
+          { ...c, spliceThreshold: Math.max(12, c.spliceThreshold - 8), lengthThreshold: Math.max(1.45, c.lengthThreshold - 0.25), maxIterations: c.maxIterations + 3 },
+          { ...c, hierarchical: c.hierarchical === 'stacked' ? 'cutout' : 'stacked', pathPrecision: Math.max(1, c.pathPrecision - 1) }
+        );
+        if (maxQualityMode) {
+          mutations.push(
+            { ...c, layerDifference: Math.max(1, c.layerDifference - 2), filterSpeckle: 0, maxIterations: c.maxIterations + 4, lengthThreshold: Math.max(1.4, c.lengthThreshold - 0.3) },
+            { ...c, spliceThreshold: Math.min(64, c.spliceThreshold + 12), lengthThreshold: c.lengthThreshold + 0.35, filterSpeckle: Math.max(0, c.filterSpeckle - 1) }
+          );
+        }
+      }
+      return mutations;
+    }
+
+    function getConfigKey(config) {
+      return [
+        config.mode,
+        config.hierarchical,
+        config.cornerThreshold,
+        config.lengthThreshold,
+        config.maxIterations,
+        config.spliceThreshold,
+        config.filterSpeckle,
+        config.colorPrecision,
+        config.layerDifference,
+        config.pathPrecision
+      ].join('|');
     }
 
     function getDetailSignal(pixels, width, height) {
@@ -614,8 +678,50 @@
       const colorScore = Math.max(0, 1 - colorRmse);
       const lumaScore = Math.max(0, 1 - lumaDiff);
       const edgeScore = Math.max(0, 1 - edgeDiff);
-      const overall = Math.max(0, Math.min(1, colorScore * 0.55 + lumaScore * 0.3 + edgeScore * 0.15));
-      return { overall, color: colorScore, luma: lumaScore, edge: edgeScore };
+      const sourceStats = estimateRasterStats(source, width, height, sampleStep);
+      const targetStats = estimateRasterStats(target, width, height, sampleStep);
+      const richnessScore = sourceStats.colorBins > 0 ? Math.max(0, Math.min(1, (targetStats.colorBins / sourceStats.colorBins) * 1.2)) : 1;
+      const edgeNoiseOvershoot = Math.max(0, targetStats.edgeNoise - sourceStats.edgeNoise);
+      const smoothnessScore = Math.max(0, 1 - Math.min(1, edgeNoiseOvershoot / Math.max(0.08, sourceStats.edgeNoise + 0.02)));
+      const overall = Math.max(0, Math.min(1, colorScore * 0.4 + lumaScore * 0.2 + edgeScore * 0.15 + richnessScore * 0.15 + smoothnessScore * 0.1));
+      return { overall, color: colorScore, luma: lumaScore, edge: edgeScore, richness: richnessScore, smoothness: smoothnessScore };
+    }
+
+    function estimateRasterStats(pixels, width, height, sampleStep) {
+      const bins = new Set();
+      let edgeNoiseTotal = 0;
+      let edgeSamples = 0;
+
+      for (let y = sampleStep; y < height - sampleStep; y += sampleStep) {
+        for (let x = sampleStep; x < width - sampleStep; x += sampleStep) {
+          const i = (y * width + x) * 4;
+          const r = pixels[i];
+          const g = pixels[i + 1];
+          const b = pixels[i + 2];
+          bins.add(`${r >> 5}-${g >> 5}-${b >> 5}`);
+
+          const left = (y * width + (x - sampleStep)) * 4;
+          const right = (y * width + (x + sampleStep)) * 4;
+          const up = ((y - sampleStep) * width + x) * 4;
+          const down = ((y + sampleStep) * width + x) * 4;
+
+          const l = 0.2126 * pixels[left] + 0.7152 * pixels[left + 1] + 0.0722 * pixels[left + 2];
+          const rL = 0.2126 * pixels[right] + 0.7152 * pixels[right + 1] + 0.0722 * pixels[right + 2];
+          const u = 0.2126 * pixels[up] + 0.7152 * pixels[up + 1] + 0.0722 * pixels[up + 2];
+          const d = 0.2126 * pixels[down] + 0.7152 * pixels[down + 1] + 0.0722 * pixels[down + 2];
+
+          const h = Math.abs(rL - l);
+          const v = Math.abs(d - u);
+          const cross = Math.abs((rL + l) - (d + u));
+          edgeNoiseTotal += cross / (h + v + 1);
+          edgeSamples++;
+        }
+      }
+
+      return {
+        colorBins: bins.size,
+        edgeNoise: edgeSamples ? edgeNoiseTotal / edgeSamples : 0
+      };
     }
 
     async function rasterizeSvg(svg, width, height) {
