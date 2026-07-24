@@ -223,7 +223,7 @@
       <div class="controls">
         <div class="control-row">
           <label for="qualityRange">Fidelity target</label>
-          <input id="qualityRange" type="range" min="50" max="95" step="5" value="85" />
+          <input id="qualityRange" type="range" min="50" max="85" step="5" value="85" />
           <output id="qualityValue">85%</output>
         </div>
         <div class="actions">
@@ -266,6 +266,9 @@
     const processButton = document.getElementById('processButton');
     const downloadButton = document.getElementById('downloadButton');
     const copyButton = document.getElementById('copyButton');
+
+    const MAX_TRACE_PIXELS = 1200000;
+    const FALLBACK_TRACE_PIXELS = 600000;
 
     let activeImage = null;
     let lastSvg = '';
@@ -372,6 +375,7 @@
 
     async function traceImage(image) {
       const version = ++processingVersion;
+      lastSvg = '';
       setStatus('Tracing...');
       try {
         const result = await traceWithVTracer(image, Number(qualityRange.value));
@@ -383,30 +387,40 @@
       } catch (error) {
         if (version !== processingVersion) return;
         console.error(error);
-        svgPreview.innerHTML = '';
-        svgMeta.innerHTML = '<div>Tracing failed. Try a smaller image or reload the page.</div>';
+        try {
+          const fallback = await traceWithVTracer(image, 50, FALLBACK_TRACE_PIXELS);
+          if (version !== processingVersion) return;
+          lastSvg = fallback.svg;
+          svgSource.textContent = fallback.svg;
+          renderSvgPreview(fallback.svg);
+          svgMeta.innerHTML = `${fallback.meta}<div>Retried at a stable processing size.</div>`;
+        } catch (fallbackError) {
+          console.error(fallbackError);
+          svgPreview.innerHTML = '';
+          svgMeta.innerHTML = '<div>Tracing failed. Try a PNG or JPG with a simpler background.</div>';
+        }
       } finally {
         if (version === processingVersion) setStatus('Ready');
       }
     }
 
-    async function traceWithVTracer(image, qualityTarget) {
+    async function traceWithVTracer(image, qualityTarget, pixelLimit = MAX_TRACE_PIXELS) {
       const traceProfiles = {
-        50: { maxDimension: 1024, colorPrecision: 4, layerDifference: 32, filterSpeckle: 64, cornerThreshold: 80, lengthThreshold: 4.5, maxIterations: 10, spliceThreshold: 45, pathPrecision: 2 },
-        55: { maxDimension: 1536, colorPrecision: 5, layerDifference: 24, filterSpeckle: 32, cornerThreshold: 75, lengthThreshold: 4, maxIterations: 12, spliceThreshold: 40, pathPrecision: 2 },
-        60: { maxDimension: 2048, colorPrecision: 5, layerDifference: 16, filterSpeckle: 16, cornerThreshold: 70, lengthThreshold: 3.75, maxIterations: 14, spliceThreshold: 35, pathPrecision: 3 },
-        65: { maxDimension: 2560, colorPrecision: 6, layerDifference: 12, filterSpeckle: 8, cornerThreshold: 65, lengthThreshold: 3.5, maxIterations: 16, spliceThreshold: 32, pathPrecision: 3 },
-        70: { maxDimension: 3072, colorPrecision: 6, layerDifference: 8, filterSpeckle: 4, cornerThreshold: 60, lengthThreshold: 3.25, maxIterations: 18, spliceThreshold: 30, pathPrecision: 3 },
-        75: { maxDimension: 3584, colorPrecision: 6, layerDifference: 6, filterSpeckle: 2, cornerThreshold: 55, lengthThreshold: 3, maxIterations: 20, spliceThreshold: 28, pathPrecision: 3 },
-        80: { maxDimension: 3840, colorPrecision: 7, layerDifference: 4, filterSpeckle: 1, cornerThreshold: 52, lengthThreshold: 2.75, maxIterations: 20, spliceThreshold: 25, pathPrecision: 4 },
-        85: { maxDimension: 4096, colorPrecision: 7, layerDifference: 2, filterSpeckle: 0, cornerThreshold: 50, lengthThreshold: 2.5, maxIterations: 20, spliceThreshold: 22, pathPrecision: 4 },
-        90: { maxDimension: 4608, colorPrecision: 8, layerDifference: 1, filterSpeckle: 0, cornerThreshold: 45, lengthThreshold: 2.25, maxIterations: 24, spliceThreshold: 20, pathPrecision: 4 },
-        95: { maxDimension: 5120, colorPrecision: 8, layerDifference: 1, filterSpeckle: 0, cornerThreshold: 40, lengthThreshold: 2, maxIterations: 24, spliceThreshold: 18, pathPrecision: 5 }
+        50: { maxDimension: 640, layerDifference: 48, filterSpeckle: 100, maxIterations: 10, lengthThreshold: 4.5 },
+        55: { maxDimension: 1024, layerDifference: 32, filterSpeckle: 64, maxIterations: 12, lengthThreshold: 4 },
+        60: { maxDimension: 1536, layerDifference: 16, filterSpeckle: 16, maxIterations: 16, lengthThreshold: 3.75 },
+        65: { maxDimension: 2048, layerDifference: 8, filterSpeckle: 4, maxIterations: 20, lengthThreshold: 3.5 },
+        70: { maxDimension: 2560, layerDifference: 6, filterSpeckle: 2, maxIterations: 20, lengthThreshold: 3.5 },
+        75: { maxDimension: 3072, layerDifference: 5, filterSpeckle: 2, maxIterations: 20, lengthThreshold: 3.5 },
+        80: { maxDimension: 3584, layerDifference: 4, filterSpeckle: 1, maxIterations: 20, lengthThreshold: 3.5 },
+        85: { maxDimension: 4096, layerDifference: 4, filterSpeckle: 1, maxIterations: 20, lengthThreshold: 3.25 }
       };
       const profile = traceProfiles[qualityTarget] || traceProfiles[85];
       const imageWidth = image.naturalWidth || image.width;
       const imageHeight = image.naturalHeight || image.height;
-      const scale = Math.min(1, profile.maxDimension / Math.max(imageWidth, imageHeight));
+      const maximumDimensionScale = profile.maxDimension / Math.max(imageWidth, imageHeight);
+      const pixelBudgetScale = Math.sqrt(pixelLimit / (imageWidth * imageHeight));
+      const scale = Math.min(1, maximumDimensionScale, pixelBudgetScale);
       const width = Math.max(24, Math.round(imageWidth * scale));
       const height = Math.max(24, Math.round(imageHeight * scale));
       const canvas = document.createElement('canvas');
@@ -421,14 +435,14 @@
         binary: false,
         mode: 'spline',
         hierarchical: 'stacked',
-        cornerThreshold: profile.cornerThreshold,
+        cornerThreshold: 180,
         lengthThreshold: profile.lengthThreshold,
         maxIterations: profile.maxIterations,
-        spliceThreshold: profile.spliceThreshold,
+        spliceThreshold: 45,
         filterSpeckle: profile.filterSpeckle,
-        colorPrecision: profile.colorPrecision,
+        colorPrecision: 0,
         layerDifference: profile.layerDifference,
-        pathPrecision: profile.pathPrecision
+        pathPrecision: 2
       });
       const pathCount = (svg.match(/<path\b/g) || []).length;
       return {
