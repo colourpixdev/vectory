@@ -293,8 +293,8 @@
     const MAX_QUALITY_TRACE_PIXELS = 11000000;
     const ULTRA_QUALITY_TRACE_PIXELS = 15000000;
     const MIN_ACCEPTABLE_AUDIT_MATCH = 0.95;
-    const SEARCH_ROUNDS_STANDARD = 2;
-    const SEARCH_ROUNDS_MAX_QUALITY = 3;
+    const SEARCH_ROUNDS_STANDARD = 3;
+    const SEARCH_ROUNDS_MAX_QUALITY = 4;
 
     let activeImage = null;
     let lastSvg = '';
@@ -456,24 +456,25 @@
 
     async function traceWithVTracer(image, qualityTarget, pixelLimit = MAX_TRACE_PIXELS, maxQualityMode = false) {
       const traceProfiles = {
-        60: { maxDimension: 2200, layerDifference: 14, filterSpeckle: 10, maxIterations: 18, lengthThreshold: 3.8, pathPrecision: 3 },
-        65: { maxDimension: 2600, layerDifference: 10, filterSpeckle: 6, maxIterations: 22, lengthThreshold: 3.5, pathPrecision: 2 },
-        70: { maxDimension: 3200, layerDifference: 8, filterSpeckle: 3, maxIterations: 24, lengthThreshold: 3.25, pathPrecision: 2 },
-        75: { maxDimension: 3800, layerDifference: 6, filterSpeckle: 2, maxIterations: 26, lengthThreshold: 3.0, pathPrecision: 2 },
-        80: { maxDimension: 4400, layerDifference: 5, filterSpeckle: 1, maxIterations: 28, lengthThreshold: 2.85, pathPrecision: 2 },
-        85: { maxDimension: 5000, layerDifference: 4, filterSpeckle: 1, maxIterations: 30, lengthThreshold: 2.7, pathPrecision: 2 },
-        90: { maxDimension: 5600, layerDifference: 3, filterSpeckle: 0, maxIterations: 32, lengthThreshold: 2.55, pathPrecision: 1 },
-        95: { maxDimension: 6200, layerDifference: 2, filterSpeckle: 0, maxIterations: 34, lengthThreshold: 2.4, pathPrecision: 1 },
-        100:{ maxDimension: 7000, layerDifference: 1, filterSpeckle: 0, maxIterations: 36, lengthThreshold: 2.25, pathPrecision: 1 }
+        60: { maxDimension: 2200, layerDifference: 24, filterSpeckle: 8, maxIterations: 12, lengthThreshold: 4.8, pathPrecision: 3, colorPrecision: 7 },
+        65: { maxDimension: 2600, layerDifference: 20, filterSpeckle: 6, maxIterations: 14, lengthThreshold: 4.5, pathPrecision: 3, colorPrecision: 7 },
+        70: { maxDimension: 3200, layerDifference: 18, filterSpeckle: 4, maxIterations: 16, lengthThreshold: 4.3, pathPrecision: 2, colorPrecision: 8 },
+        75: { maxDimension: 3800, layerDifference: 16, filterSpeckle: 3, maxIterations: 18, lengthThreshold: 4.1, pathPrecision: 2, colorPrecision: 8 },
+        80: { maxDimension: 4400, layerDifference: 14, filterSpeckle: 2, maxIterations: 20, lengthThreshold: 4.0, pathPrecision: 2, colorPrecision: 8 },
+        85: { maxDimension: 5000, layerDifference: 12, filterSpeckle: 1, maxIterations: 22, lengthThreshold: 3.9, pathPrecision: 2, colorPrecision: 8 },
+        90: { maxDimension: 5600, layerDifference: 10, filterSpeckle: 1, maxIterations: 24, lengthThreshold: 3.8, pathPrecision: 2, colorPrecision: 8 },
+        95: { maxDimension: 6200, layerDifference: 8, filterSpeckle: 0, maxIterations: 26, lengthThreshold: 3.7, pathPrecision: 2, colorPrecision: 8 },
+        100:{ maxDimension: 7000, layerDifference: 6, filterSpeckle: 0, maxIterations: 28, lengthThreshold: 3.6, pathPrecision: 1, colorPrecision: 8 }
       };
       const baseProfile = traceProfiles[qualityTarget] || traceProfiles[95];
       const profile = maxQualityMode ? {
         maxDimension: Math.round(baseProfile.maxDimension * 1.35),
-        layerDifference: Math.max(1, baseProfile.layerDifference - 1),
+        layerDifference: Math.max(4, baseProfile.layerDifference - 2),
         filterSpeckle: Math.max(0, baseProfile.filterSpeckle - 1),
-        maxIterations: baseProfile.maxIterations + 6,
-        lengthThreshold: Math.max(1.6, baseProfile.lengthThreshold - 0.25),
-        pathPrecision: baseProfile.pathPrecision
+        maxIterations: Math.min(36, baseProfile.maxIterations + 6),
+        lengthThreshold: Math.max(3.5, baseProfile.lengthThreshold - 0.15),
+        pathPrecision: baseProfile.pathPrecision,
+        colorPrecision: 8
       } : baseProfile;
       const imageWidth = image.naturalWidth || image.width;
       const imageHeight = image.naturalHeight || image.height;
@@ -502,13 +503,13 @@
         maxIterations: profile.maxIterations,
         spliceThreshold: detailSignal > 0.16 ? 30 : 38,
         filterSpeckle: profile.filterSpeckle,
-        colorPrecision: 0,
+        colorPrecision: profile.colorPrecision,
         layerDifference: profile.layerDifference,
         pathPrecision: profile.pathPrecision
       };
 
       const rounds = maxQualityMode ? SEARCH_ROUNDS_MAX_QUALITY : SEARCH_ROUNDS_STANDARD;
-      const best = await findBestTraceCandidate(tracer, pixels, width, height, imageData, baseConfig, maxQualityMode, rounds);
+      const best = await findBestTraceCandidate(tracer, pixels, width, height, imageData, clampTraceConfig(baseConfig), maxQualityMode, rounds);
       const svg = best.svg;
       const pathCount = (svg.match(/<path\b/g) || []).length;
       return {
@@ -551,16 +552,16 @@
       const configs = [
         { ...baseConfig, hierarchical: 'stacked' },
         { ...baseConfig, hierarchical: 'cutout' },
-        { ...baseConfig, hierarchical: 'stacked', spliceThreshold: Math.max(16, baseConfig.spliceThreshold - 10), lengthThreshold: Math.max(1.6, baseConfig.lengthThreshold - 0.4) },
+        { ...baseConfig, hierarchical: 'stacked', spliceThreshold: Math.max(16, baseConfig.spliceThreshold - 10), lengthThreshold: Math.max(3.5, baseConfig.lengthThreshold - 0.25) },
         { ...baseConfig, hierarchical: 'stacked', spliceThreshold: Math.min(55, baseConfig.spliceThreshold + 10), lengthThreshold: baseConfig.lengthThreshold + 0.3 }
       ];
       if (maxQualityMode) {
         configs.push(
-          { ...baseConfig, hierarchical: 'cutout', layerDifference: Math.max(1, baseConfig.layerDifference - 1), filterSpeckle: Math.max(0, baseConfig.filterSpeckle - 1), maxIterations: baseConfig.maxIterations + 4 },
-          { ...baseConfig, hierarchical: 'stacked', layerDifference: Math.max(1, baseConfig.layerDifference - 2), filterSpeckle: 0, maxIterations: baseConfig.maxIterations + 6, spliceThreshold: Math.max(14, baseConfig.spliceThreshold - 12), lengthThreshold: Math.max(1.55, baseConfig.lengthThreshold - 0.5) }
+          { ...baseConfig, hierarchical: 'cutout', layerDifference: Math.max(4, baseConfig.layerDifference - 2), filterSpeckle: Math.max(0, baseConfig.filterSpeckle - 1), maxIterations: Math.min(36, baseConfig.maxIterations + 4), colorPrecision: 8 },
+          { ...baseConfig, hierarchical: 'stacked', layerDifference: Math.max(4, baseConfig.layerDifference - 3), filterSpeckle: 0, maxIterations: Math.min(36, baseConfig.maxIterations + 6), spliceThreshold: Math.max(14, baseConfig.spliceThreshold - 12), lengthThreshold: Math.max(3.5, baseConfig.lengthThreshold - 0.35), colorPrecision: 8 }
         );
       }
-      return configs;
+      return configs.map(clampTraceConfig);
     }
 
     function mutateFromTopCandidates(evaluated, maxQualityMode) {
@@ -569,19 +570,19 @@
       for (const entry of top) {
         const c = entry.config;
         mutations.push(
-          { ...c, layerDifference: Math.max(1, c.layerDifference - 1), filterSpeckle: Math.max(0, c.filterSpeckle - 1), maxIterations: c.maxIterations + 2 },
-          { ...c, layerDifference: c.layerDifference + 1, spliceThreshold: Math.min(60, c.spliceThreshold + 8), lengthThreshold: c.lengthThreshold + 0.2 },
-          { ...c, spliceThreshold: Math.max(12, c.spliceThreshold - 8), lengthThreshold: Math.max(1.45, c.lengthThreshold - 0.25), maxIterations: c.maxIterations + 3 },
-          { ...c, hierarchical: c.hierarchical === 'stacked' ? 'cutout' : 'stacked', pathPrecision: Math.max(1, c.pathPrecision - 1) }
+          { ...c, layerDifference: Math.max(4, c.layerDifference - 2), filterSpeckle: Math.max(0, c.filterSpeckle - 1), maxIterations: Math.min(36, c.maxIterations + 2), colorPrecision: 8 },
+          { ...c, layerDifference: Math.min(48, c.layerDifference + 2), spliceThreshold: Math.min(70, c.spliceThreshold + 8), lengthThreshold: Math.min(10, c.lengthThreshold + 0.2), colorPrecision: Math.max(6, c.colorPrecision - 1) },
+          { ...c, spliceThreshold: Math.max(12, c.spliceThreshold - 8), lengthThreshold: Math.max(3.5, c.lengthThreshold - 0.2), maxIterations: Math.min(36, c.maxIterations + 3), colorPrecision: 8 },
+          { ...c, hierarchical: c.hierarchical === 'stacked' ? 'cutout' : 'stacked', pathPrecision: Math.max(1, c.pathPrecision - 1), colorPrecision: 8 }
         );
         if (maxQualityMode) {
           mutations.push(
-            { ...c, layerDifference: Math.max(1, c.layerDifference - 2), filterSpeckle: 0, maxIterations: c.maxIterations + 4, lengthThreshold: Math.max(1.4, c.lengthThreshold - 0.3) },
-            { ...c, spliceThreshold: Math.min(64, c.spliceThreshold + 12), lengthThreshold: c.lengthThreshold + 0.35, filterSpeckle: Math.max(0, c.filterSpeckle - 1) }
+            { ...c, layerDifference: Math.max(4, c.layerDifference - 3), filterSpeckle: 0, maxIterations: Math.min(36, c.maxIterations + 4), lengthThreshold: Math.max(3.5, c.lengthThreshold - 0.25), colorPrecision: 8 },
+            { ...c, spliceThreshold: Math.min(70, c.spliceThreshold + 12), lengthThreshold: Math.min(10, c.lengthThreshold + 0.35), filterSpeckle: Math.max(0, c.filterSpeckle - 1), colorPrecision: Math.max(6, c.colorPrecision - 1) }
           );
         }
       }
-      return mutations;
+      return mutations.map(clampTraceConfig);
     }
 
     function getConfigKey(config) {
@@ -597,6 +598,21 @@
         config.layerDifference,
         config.pathPrecision
       ].join('|');
+    }
+
+    function clampTraceConfig(config) {
+      return {
+        ...config,
+        hierarchical: config.hierarchical === 'cutout' ? 'cutout' : 'stacked',
+        colorPrecision: Math.max(1, Math.min(8, Math.round(config.colorPrecision))),
+        layerDifference: Math.max(0, Math.min(255, Math.round(config.layerDifference))),
+        filterSpeckle: Math.max(0, Math.min(16, Math.round(config.filterSpeckle))),
+        cornerThreshold: Math.max(0, Math.min(180, Math.round(config.cornerThreshold))),
+        spliceThreshold: Math.max(0, Math.min(180, Math.round(config.spliceThreshold))),
+        maxIterations: Math.max(1, Math.min(36, Math.round(config.maxIterations))),
+        lengthThreshold: Math.max(3.5, Math.min(10, Number(config.lengthThreshold))),
+        pathPrecision: Math.max(1, Math.min(6, Math.round(config.pathPrecision)))
+      };
     }
 
     function getDetailSignal(pixels, width, height) {
@@ -671,19 +687,20 @@
           count++;
         }
       }
-      if (count === 0) return { overall: 0, color: 0, luma: 0, edge: 0 };
+      if (count === 0) return { overall: 0, color: 0, luma: 0, edge: 0, richness: 0, smoothness: 0 };
       const colorRmse = Math.sqrt(colorTotal / (count * 3)) / 255;
       const lumaDiff = lumaTotal / count / 255;
       const edgeDiff = edgeTotal / count / 510;
       const colorScore = Math.max(0, 1 - colorRmse);
-      const lumaScore = Math.max(0, 1 - lumaDiff);
-      const edgeScore = Math.max(0, 1 - edgeDiff);
+      const lumaScore = measureLumaSsim(source, target, width, height, sampleStep);
+      const edgeScore = measureEdgeSsim(source, target, width, height, sampleStep);
       const sourceStats = estimateRasterStats(source, width, height, sampleStep);
       const targetStats = estimateRasterStats(target, width, height, sampleStep);
-      const richnessScore = sourceStats.colorBins > 0 ? Math.max(0, Math.min(1, (targetStats.colorBins / sourceStats.colorBins) * 1.2)) : 1;
+      const richnessScore = sourceStats.colorBins > 0 ? Math.max(0, Math.min(1, (targetStats.colorBins / sourceStats.colorBins) * 1.05)) : 1;
       const edgeNoiseOvershoot = Math.max(0, targetStats.edgeNoise - sourceStats.edgeNoise);
       const smoothnessScore = Math.max(0, 1 - Math.min(1, edgeNoiseOvershoot / Math.max(0.08, sourceStats.edgeNoise + 0.02)));
-      const overall = Math.max(0, Math.min(1, colorScore * 0.4 + lumaScore * 0.2 + edgeScore * 0.15 + richnessScore * 0.15 + smoothnessScore * 0.1));
+      const detailScore = sourceStats.detail > 0 ? Math.max(0, Math.min(1, targetStats.detail / sourceStats.detail)) : 1;
+      const overall = Math.max(0, Math.min(1, colorScore * 0.25 + lumaScore * 0.35 + edgeScore * 0.2 + richnessScore * 0.1 + smoothnessScore * 0.05 + detailScore * 0.05));
       return { overall, color: colorScore, luma: lumaScore, edge: edgeScore, richness: richnessScore, smoothness: smoothnessScore };
     }
 
@@ -691,6 +708,7 @@
       const bins = new Set();
       let edgeNoiseTotal = 0;
       let edgeSamples = 0;
+      let detailTotal = 0;
 
       for (let y = sampleStep; y < height - sampleStep; y += sampleStep) {
         for (let x = sampleStep; x < width - sampleStep; x += sampleStep) {
@@ -714,14 +732,102 @@
           const v = Math.abs(d - u);
           const cross = Math.abs((rL + l) - (d + u));
           edgeNoiseTotal += cross / (h + v + 1);
+          detailTotal += h + v;
           edgeSamples++;
         }
       }
 
       return {
         colorBins: bins.size,
-        edgeNoise: edgeSamples ? edgeNoiseTotal / edgeSamples : 0
+        edgeNoise: edgeSamples ? edgeNoiseTotal / edgeSamples : 0,
+        detail: edgeSamples ? detailTotal / edgeSamples / 510 : 0
       };
+    }
+
+    function measureLumaSsim(source, target, width, height, sampleStep) {
+      let total = 0;
+      let blocks = 0;
+      const c1 = (0.01 * 255) ** 2;
+      const c2 = (0.03 * 255) ** 2;
+      const blockRadius = Math.max(1, sampleStep);
+      for (let y = blockRadius; y < height - blockRadius; y += sampleStep * 2) {
+        for (let x = blockRadius; x < width - blockRadius; x += sampleStep * 2) {
+          let muX = 0;
+          let muY = 0;
+          let n = 0;
+          for (let yy = y - blockRadius; yy <= y + blockRadius; yy += sampleStep) {
+            for (let xx = x - blockRadius; xx <= x + blockRadius; xx += sampleStep) {
+              const i = (yy * width + xx) * 4;
+              const lx = 0.2126 * source[i] + 0.7152 * source[i + 1] + 0.0722 * source[i + 2];
+              const ly = 0.2126 * target[i] + 0.7152 * target[i + 1] + 0.0722 * target[i + 2];
+              muX += lx;
+              muY += ly;
+              n++;
+            }
+          }
+          if (!n) continue;
+          muX /= n;
+          muY /= n;
+          let varX = 0;
+          let varY = 0;
+          let cov = 0;
+          for (let yy = y - blockRadius; yy <= y + blockRadius; yy += sampleStep) {
+            for (let xx = x - blockRadius; xx <= x + blockRadius; xx += sampleStep) {
+              const i = (yy * width + xx) * 4;
+              const lx = 0.2126 * source[i] + 0.7152 * source[i + 1] + 0.0722 * source[i + 2];
+              const ly = 0.2126 * target[i] + 0.7152 * target[i + 1] + 0.0722 * target[i + 2];
+              const dx = lx - muX;
+              const dy = ly - muY;
+              varX += dx * dx;
+              varY += dy * dy;
+              cov += dx * dy;
+            }
+          }
+          varX /= n;
+          varY /= n;
+          cov /= n;
+          const numerator = (2 * muX * muY + c1) * (2 * cov + c2);
+          const denominator = (muX * muX + muY * muY + c1) * (varX + varY + c2);
+          total += denominator > 0 ? numerator / denominator : 0;
+          blocks++;
+        }
+      }
+      return blocks ? Math.max(0, Math.min(1, total / blocks)) : 0;
+    }
+
+    function measureEdgeSsim(source, target, width, height, sampleStep) {
+      let total = 0;
+      let count = 0;
+      for (let y = sampleStep; y < height - sampleStep; y += sampleStep) {
+        for (let x = sampleStep; x < width - sampleStep; x += sampleStep) {
+          const center = (y * width + x) * 4;
+          const left = (y * width + (x - sampleStep)) * 4;
+          const right = (y * width + (x + sampleStep)) * 4;
+          const up = ((y - sampleStep) * width + x) * 4;
+          const down = ((y + sampleStep) * width + x) * 4;
+
+          const sC = 0.2126 * source[center] + 0.7152 * source[center + 1] + 0.0722 * source[center + 2];
+          const sL = 0.2126 * source[left] + 0.7152 * source[left + 1] + 0.0722 * source[left + 2];
+          const sR = 0.2126 * source[right] + 0.7152 * source[right + 1] + 0.0722 * source[right + 2];
+          const sU = 0.2126 * source[up] + 0.7152 * source[up + 1] + 0.0722 * source[up + 2];
+          const sD = 0.2126 * source[down] + 0.7152 * source[down + 1] + 0.0722 * source[down + 2];
+
+          const tC = 0.2126 * target[center] + 0.7152 * target[center + 1] + 0.0722 * target[center + 2];
+          const tL = 0.2126 * target[left] + 0.7152 * target[left + 1] + 0.0722 * target[left + 2];
+          const tR = 0.2126 * target[right] + 0.7152 * target[right + 1] + 0.0722 * target[right + 2];
+          const tU = 0.2126 * target[up] + 0.7152 * target[up + 1] + 0.0722 * target[up + 2];
+          const tD = 0.2126 * target[down] + 0.7152 * target[down + 1] + 0.0722 * target[down + 2];
+
+          const sEdge = Math.abs(sR - sL) + Math.abs(sD - sU);
+          const tEdge = Math.abs(tR - tL) + Math.abs(tD - tU);
+          total += 1 - Math.min(1, Math.abs(sEdge - tEdge) / 255);
+          const sContrast = Math.abs(sC - (sL + sR + sU + sD) * 0.25);
+          const tContrast = Math.abs(tC - (tL + tR + tU + tD) * 0.25);
+          total += 1 - Math.min(1, Math.abs(sContrast - tContrast) / 255);
+          count += 2;
+        }
+      }
+      return count ? Math.max(0, Math.min(1, total / count)) : 0;
     }
 
     async function rasterizeSvg(svg, width, height) {
