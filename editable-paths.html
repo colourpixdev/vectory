@@ -124,6 +124,20 @@
       flex-wrap: wrap;
     }
 
+    .quality-warning {
+      display: none;
+      color: #f8d98b;
+      background: rgba(248, 217, 139, 0.1);
+      border: 1px solid rgba(248, 217, 139, 0.35);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 0.9rem;
+    }
+
+    .quality-warning.visible {
+      display: block;
+    }
+
     button {
       border: none;
       cursor: pointer;
@@ -223,9 +237,15 @@
       <div class="controls">
         <div class="control-row">
           <label for="qualityRange">Fidelity target</label>
-          <input id="qualityRange" type="range" min="50" max="85" step="5" value="85" />
-          <output id="qualityValue">85%</output>
+          <input id="qualityRange" type="range" min="60" max="100" step="5" value="95" />
+          <output id="qualityValue">95%</output>
         </div>
+        <div class="control-row">
+          <label for="maxQualityToggle">Max quality</label>
+          <input id="maxQualityToggle" type="checkbox" />
+          <span style="color: var(--muted); font-size: 0.9rem;">Slower, but pushes higher detail and stronger candidate search.</span>
+        </div>
+        <div class="quality-warning" id="qualityWarning" aria-live="polite">Max quality mode can take around 10–30 seconds on large images.</div>
         <div class="actions">
           <button id="processButton">Trace image</button>
           <button type="button" class="secondary" id="downloadButton">Download SVG</button>
@@ -263,12 +283,16 @@
     const svgMeta = document.getElementById('svgMeta');
     const qualityRange = document.getElementById('qualityRange');
     const qualityValue = document.getElementById('qualityValue');
+    const maxQualityToggle = document.getElementById('maxQualityToggle');
+    const qualityWarning = document.getElementById('qualityWarning');
     const processButton = document.getElementById('processButton');
     const downloadButton = document.getElementById('downloadButton');
     const copyButton = document.getElementById('copyButton');
 
-    const MAX_TRACE_PIXELS = 1200000;
-    const FALLBACK_TRACE_PIXELS = 600000;
+    const MAX_TRACE_PIXELS = 6000000;
+    const FALLBACK_TRACE_PIXELS = 1600000;
+    const MAX_QUALITY_TRACE_PIXELS = 11000000;
+    const MAX_QUALITY_FALLBACK_TRACE_PIXELS = 3000000;
 
     let activeImage = null;
     let lastSvg = '';
@@ -277,6 +301,11 @@
 
     qualityValue.textContent = `${qualityRange.value}%`;
     qualityRange.addEventListener('input', () => qualityValue.textContent = `${qualityRange.value}%`);
+    maxQualityToggle.addEventListener('change', () => {
+      updateMaxQualityNotice();
+      if (activeImage) void traceImage(activeImage);
+    });
+    updateMaxQualityNotice();
 
     dropzone.addEventListener('click', () => {
       const input = document.createElement('input');
@@ -377,8 +406,11 @@
       const version = ++processingVersion;
       lastSvg = '';
       setStatus('Tracing...');
+      const maxQualityMode = maxQualityToggle.checked;
+      const primaryPixelLimit = maxQualityMode ? MAX_QUALITY_TRACE_PIXELS : MAX_TRACE_PIXELS;
+      const fallbackPixelLimit = maxQualityMode ? MAX_QUALITY_FALLBACK_TRACE_PIXELS : FALLBACK_TRACE_PIXELS;
       try {
-        const result = await traceWithVTracer(image, Number(qualityRange.value));
+        const result = await traceWithVTracer(image, Number(qualityRange.value), primaryPixelLimit, maxQualityMode);
         if (version !== processingVersion) return;
         lastSvg = result.svg;
         svgSource.textContent = result.svg;
@@ -388,7 +420,7 @@
         if (version !== processingVersion) return;
         console.error(error);
         try {
-          const fallback = await traceWithVTracer(image, 50, FALLBACK_TRACE_PIXELS);
+          const fallback = await traceWithVTracer(image, 70, fallbackPixelLimit, maxQualityMode);
           if (version !== processingVersion) return;
           lastSvg = fallback.svg;
           svgSource.textContent = fallback.svg;
@@ -404,18 +436,27 @@
       }
     }
 
-    async function traceWithVTracer(image, qualityTarget, pixelLimit = MAX_TRACE_PIXELS) {
+    async function traceWithVTracer(image, qualityTarget, pixelLimit = MAX_TRACE_PIXELS, maxQualityMode = false) {
       const traceProfiles = {
-        50: { maxDimension: 640, layerDifference: 48, filterSpeckle: 100, maxIterations: 10, lengthThreshold: 4.5 },
-        55: { maxDimension: 1024, layerDifference: 32, filterSpeckle: 64, maxIterations: 12, lengthThreshold: 4 },
-        60: { maxDimension: 1536, layerDifference: 16, filterSpeckle: 16, maxIterations: 16, lengthThreshold: 3.75 },
-        65: { maxDimension: 2048, layerDifference: 8, filterSpeckle: 4, maxIterations: 20, lengthThreshold: 3.5 },
-        70: { maxDimension: 2560, layerDifference: 6, filterSpeckle: 2, maxIterations: 20, lengthThreshold: 3.5 },
-        75: { maxDimension: 3072, layerDifference: 5, filterSpeckle: 2, maxIterations: 20, lengthThreshold: 3.5 },
-        80: { maxDimension: 3584, layerDifference: 4, filterSpeckle: 1, maxIterations: 20, lengthThreshold: 3.5 },
-        85: { maxDimension: 4096, layerDifference: 4, filterSpeckle: 1, maxIterations: 20, lengthThreshold: 3.25 }
+        60: { maxDimension: 2200, layerDifference: 14, filterSpeckle: 10, maxIterations: 18, lengthThreshold: 3.8, pathPrecision: 3 },
+        65: { maxDimension: 2600, layerDifference: 10, filterSpeckle: 6, maxIterations: 22, lengthThreshold: 3.5, pathPrecision: 2 },
+        70: { maxDimension: 3200, layerDifference: 8, filterSpeckle: 3, maxIterations: 24, lengthThreshold: 3.25, pathPrecision: 2 },
+        75: { maxDimension: 3800, layerDifference: 6, filterSpeckle: 2, maxIterations: 26, lengthThreshold: 3.0, pathPrecision: 2 },
+        80: { maxDimension: 4400, layerDifference: 5, filterSpeckle: 1, maxIterations: 28, lengthThreshold: 2.85, pathPrecision: 2 },
+        85: { maxDimension: 5000, layerDifference: 4, filterSpeckle: 1, maxIterations: 30, lengthThreshold: 2.7, pathPrecision: 2 },
+        90: { maxDimension: 5600, layerDifference: 3, filterSpeckle: 0, maxIterations: 32, lengthThreshold: 2.55, pathPrecision: 1 },
+        95: { maxDimension: 6200, layerDifference: 2, filterSpeckle: 0, maxIterations: 34, lengthThreshold: 2.4, pathPrecision: 1 },
+        100:{ maxDimension: 7000, layerDifference: 1, filterSpeckle: 0, maxIterations: 36, lengthThreshold: 2.25, pathPrecision: 1 }
       };
-      const profile = traceProfiles[qualityTarget] || traceProfiles[85];
+      const baseProfile = traceProfiles[qualityTarget] || traceProfiles[95];
+      const profile = maxQualityMode ? {
+        maxDimension: Math.round(baseProfile.maxDimension * 1.35),
+        layerDifference: Math.max(1, baseProfile.layerDifference - 1),
+        filterSpeckle: Math.max(0, baseProfile.filterSpeckle - 1),
+        maxIterations: baseProfile.maxIterations + 6,
+        lengthThreshold: Math.max(1.6, baseProfile.lengthThreshold - 0.25),
+        pathPrecision: baseProfile.pathPrecision
+      } : baseProfile;
       const imageWidth = image.naturalWidth || image.width;
       const imageHeight = image.naturalHeight || image.height;
       const maximumDimensionScale = profile.maxDimension / Math.max(imageWidth, imageHeight);
@@ -427,28 +468,157 @@
       const context = canvas.getContext('2d', { willReadFrequently: true });
       canvas.width = width;
       canvas.height = height;
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
       context.drawImage(image, 0, 0, width, height);
       const imageData = context.getImageData(0, 0, width, height);
+      const detailSignal = getDetailSignal(imageData.data, width, height);
+      applyAdaptivePreprocess(imageData.data, width, height, qualityTarget, detailSignal);
       const tracer = await loadVTracer();
       const pixels = new Uint8Array(imageData.data.buffer, imageData.data.byteOffset, imageData.data.byteLength);
-      const svg = tracer.to_svg(pixels, width, height, {
+      const baseConfig = {
         binary: false,
         mode: 'spline',
-        hierarchical: 'stacked',
         cornerThreshold: 180,
         lengthThreshold: profile.lengthThreshold,
         maxIterations: profile.maxIterations,
-        spliceThreshold: 45,
+        spliceThreshold: detailSignal > 0.16 ? 30 : 38,
         filterSpeckle: profile.filterSpeckle,
         colorPrecision: 0,
         layerDifference: profile.layerDifference,
-        pathPrecision: 2
-      });
+        pathPrecision: profile.pathPrecision
+      };
+
+      const candidateConfigs = [
+        { ...baseConfig, hierarchical: 'stacked' },
+        { ...baseConfig, hierarchical: 'stacked', spliceThreshold: Math.max(18, baseConfig.spliceThreshold - 8), lengthThreshold: Math.max(1.8, baseConfig.lengthThreshold - 0.35) },
+        { ...baseConfig, hierarchical: 'stacked', spliceThreshold: Math.min(50, baseConfig.spliceThreshold + 8), lengthThreshold: baseConfig.lengthThreshold + 0.25, filterSpeckle: Math.max(0, baseConfig.filterSpeckle - 1) }
+      ];
+      if (maxQualityMode) {
+        candidateConfigs.push(
+          { ...baseConfig, hierarchical: 'cutout', spliceThreshold: Math.max(16, baseConfig.spliceThreshold - 10), lengthThreshold: Math.max(1.7, baseConfig.lengthThreshold - 0.4) },
+          { ...baseConfig, hierarchical: 'stacked', spliceThreshold: Math.max(15, baseConfig.spliceThreshold - 12), lengthThreshold: Math.max(1.65, baseConfig.lengthThreshold - 0.5), maxIterations: baseConfig.maxIterations + 4, pathPrecision: 1 }
+        );
+      }
+
+      const candidates = [];
+      for (const config of candidateConfigs) {
+        const svg = tracer.to_svg(pixels, width, height, config);
+        const similarity = await measureSvgSimilarity(svg, imageData, width, height);
+        candidates.push({ svg, similarity, config });
+      }
+
+      candidates.sort((a, b) => b.similarity - a.similarity);
+      const best = candidates[0];
+      const svg = best.svg;
       const pathCount = (svg.match(/<path\b/g) || []).length;
       return {
         svg,
-        meta: `<div>SVG size: ${width}x${height} viewBox</div><div>${pathCount} editable spline paths generated</div><div>${qualityTarget}% fidelity target</div>`
+        meta: `<div>SVG size: ${width}x${height} viewBox</div><div>${pathCount} editable paths generated</div><div>${qualityTarget}% fidelity target</div><div>${maxQualityMode ? 'Max quality mode enabled' : 'Standard quality mode'}</div><div>Estimated photo match: ${Math.round(best.similarity * 100)}%</div>`
       };
+    }
+
+    function getDetailSignal(pixels, width, height) {
+      const sampleStep = Math.max(1, Math.floor(Math.max(width, height) / 700));
+      let gradientTotal = 0;
+      let samples = 0;
+      for (let y = sampleStep; y < height; y += sampleStep) {
+        for (let x = sampleStep; x < width; x += sampleStep) {
+          const i = (y * width + x) * 4;
+          const left = i - sampleStep * 4;
+          const up = i - sampleStep * width * 4;
+          const luma = 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
+          const lumaLeft = 0.2126 * pixels[left] + 0.7152 * pixels[left + 1] + 0.0722 * pixels[left + 2];
+          const lumaUp = 0.2126 * pixels[up] + 0.7152 * pixels[up + 1] + 0.0722 * pixels[up + 2];
+          gradientTotal += Math.abs(luma - lumaLeft) + Math.abs(luma - lumaUp);
+          samples += 2;
+        }
+      }
+      if (samples === 0) return 0.08;
+      return Math.min(0.35, gradientTotal / samples / 255);
+    }
+
+    function applyAdaptivePreprocess(pixels, width, height, qualityTarget, detailSignal) {
+      if (qualityTarget < 80) return;
+      const strength = Math.max(0, Math.min(0.45, 0.18 + detailSignal));
+      const original = new Uint8ClampedArray(pixels);
+      for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+          const index = (y * width + x) * 4;
+          for (let c = 0; c < 3; c++) {
+            const center = original[index + c];
+            const horizontal = (original[index + c - 4] + original[index + c + 4]) * 0.5;
+            const vertical = (original[index + c - width * 4] + original[index + c + width * 4]) * 0.5;
+            const blurred = (horizontal + vertical) * 0.5;
+            const sharpened = center + (center - blurred) * strength;
+            pixels[index + c] = Math.max(0, Math.min(255, Math.round(sharpened)));
+          }
+        }
+      }
+    }
+
+    async function measureSvgSimilarity(svg, sourceImageData, width, height) {
+      const rendered = await rasterizeSvg(svg, width, height);
+      const source = sourceImageData.data;
+      const target = rendered.data;
+      const sampleStep = Math.max(1, Math.floor(Math.max(width, height) / 900));
+      let total = 0;
+      let count = 0;
+      for (let y = 0; y < height; y += sampleStep) {
+        for (let x = 0; x < width; x += sampleStep) {
+          const i = (y * width + x) * 4;
+          const dr = source[i] - target[i];
+          const dg = source[i + 1] - target[i + 1];
+          const db = source[i + 2] - target[i + 2];
+          total += dr * dr + dg * dg + db * db;
+          count++;
+        }
+      }
+      if (count === 0) return 0;
+      const rmse = Math.sqrt(total / (count * 3)) / 255;
+      return Math.max(0, 1 - rmse);
+    }
+
+    async function rasterizeSvg(svg, width, height) {
+      if (typeof window.createImageBitmap === 'function') {
+        try {
+          const bitmap = await createImageBitmap(new Blob([svg], { type: 'image/svg+xml' }));
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d', { willReadFrequently: true });
+          canvas.width = width;
+          canvas.height = height;
+          context.drawImage(bitmap, 0, 0, width, height);
+          bitmap.close();
+          return context.getImageData(0, 0, width, height);
+        } catch (error) {
+          console.warn('Falling back to SVG image-element rasterization.', error);
+        }
+      }
+
+      const image = await loadSvgImage(svg);
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      canvas.width = width;
+      canvas.height = height;
+      context.drawImage(image, 0, 0, width, height);
+      return context.getImageData(0, 0, width, height);
+    }
+
+    function loadSvgImage(svg) {
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+          URL.revokeObjectURL(url);
+          resolve(image);
+        };
+        image.onerror = (event) => {
+          URL.revokeObjectURL(url);
+          reject(new Error(`SVG rasterization failed: ${event?.type || 'unknown error'}`));
+        };
+        image.src = url;
+      });
     }
 
     async function loadVTracer() {
@@ -466,6 +636,10 @@
 
     function setStatus(message) {
       processButton.textContent = message === 'Tracing...' ? 'Tracing...' : 'Trace image';
+    }
+
+    function updateMaxQualityNotice() {
+      qualityWarning.classList.toggle('visible', maxQualityToggle.checked);
     }
 
     function renderSvgPreview(svg) {
