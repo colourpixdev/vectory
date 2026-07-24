@@ -237,15 +237,15 @@
       <div class="controls">
         <div class="control-row">
           <label for="qualityRange">Fidelity target</label>
-          <input id="qualityRange" type="range" min="60" max="100" step="5" value="95" />
-          <output id="qualityValue">95%</output>
+          <input id="qualityRange" type="range" min="95" max="100" step="5" value="100" />
+          <output id="qualityValue">100%</output>
         </div>
         <div class="control-row">
           <label for="maxQualityToggle">Max quality</label>
-          <input id="maxQualityToggle" type="checkbox" />
+          <input id="maxQualityToggle" type="checkbox" checked />
           <span style="color: var(--muted); font-size: 0.9rem;">Slower, but pushes higher detail and stronger candidate search.</span>
         </div>
-        <div class="quality-warning" id="qualityWarning" aria-live="polite">Max quality mode can take around 10–30 seconds on large images.</div>
+        <div class="quality-warning" id="qualityWarning" aria-live="polite">Max quality mode can take around 10–30 seconds on large images. Results below 95% audit match are rejected.</div>
         <div class="actions">
           <button id="processButton">Trace image</button>
           <button type="button" class="secondary" id="downloadButton">Download SVG</button>
@@ -290,9 +290,9 @@
     const copyButton = document.getElementById('copyButton');
 
     const MAX_TRACE_PIXELS = 6000000;
-    const FALLBACK_TRACE_PIXELS = 1600000;
     const MAX_QUALITY_TRACE_PIXELS = 11000000;
-    const MAX_QUALITY_FALLBACK_TRACE_PIXELS = 3000000;
+    const ULTRA_QUALITY_TRACE_PIXELS = 15000000;
+    const MIN_ACCEPTABLE_AUDIT_MATCH = 0.95;
 
     let activeImage = null;
     let lastSvg = '';
@@ -407,33 +407,49 @@
       lastSvg = '';
       setStatus('Tracing...');
       const maxQualityMode = maxQualityToggle.checked;
-      const primaryPixelLimit = maxQualityMode ? MAX_QUALITY_TRACE_PIXELS : MAX_TRACE_PIXELS;
-      const fallbackPixelLimit = maxQualityMode ? MAX_QUALITY_FALLBACK_TRACE_PIXELS : FALLBACK_TRACE_PIXELS;
       try {
-        const result = await traceWithVTracer(image, Number(qualityRange.value), primaryPixelLimit, maxQualityMode);
+        const result = await traceWithQualityAudit(image, Number(qualityRange.value), maxQualityMode);
         if (version !== processingVersion) return;
-        lastSvg = result.svg;
-        svgSource.textContent = result.svg;
-        renderSvgPreview(result.svg);
-        svgMeta.innerHTML = result.meta;
+        renderSvgPreview(result.best.svg);
+        svgSource.textContent = result.best.svg;
+        if (result.accepted) {
+          lastSvg = result.best.svg;
+          svgMeta.innerHTML = `${result.best.meta}<div>Audit gate: accepted (${Math.round(result.best.audit.overall * 100)}% ≥ ${Math.round(MIN_ACCEPTABLE_AUDIT_MATCH * 100)}%).</div>${formatAuditReport(result.auditTrail)}`;
+        } else {
+          lastSvg = '';
+          svgMeta.innerHTML = `<div>Result rejected by quality gate.</div><div>Best audited match: ${Math.round(result.best.audit.overall * 100)}% (requires ${Math.round(MIN_ACCEPTABLE_AUDIT_MATCH * 100)}%).</div><div>No downloadable SVG is provided because quality did not meet the standard.</div>${formatAuditReport(result.auditTrail)}`;
+        }
       } catch (error) {
         if (version !== processingVersion) return;
         console.error(error);
-        try {
-          const fallback = await traceWithVTracer(image, 70, fallbackPixelLimit, maxQualityMode);
-          if (version !== processingVersion) return;
-          lastSvg = fallback.svg;
-          svgSource.textContent = fallback.svg;
-          renderSvgPreview(fallback.svg);
-          svgMeta.innerHTML = `${fallback.meta}<div>Retried at a stable processing size.</div>`;
-        } catch (fallbackError) {
-          console.error(fallbackError);
-          svgPreview.innerHTML = '';
-          svgMeta.innerHTML = '<div>Tracing failed. Try a PNG or JPG with a simpler background.</div>';
-        }
+        svgPreview.innerHTML = '';
+        svgMeta.innerHTML = '<div>Tracing failed. Try a PNG or JPG with a simpler background.</div>';
       } finally {
         if (version === processingVersion) setStatus('Ready');
       }
+    }
+
+    async function traceWithQualityAudit(image, qualityTarget, maxQualityMode) {
+      const clampedQuality = Math.max(95, Math.min(100, qualityTarget));
+      const attempts = maxQualityMode ? [
+        { label: 'max-quality-pass', qualityTarget: clampedQuality, pixelLimit: MAX_QUALITY_TRACE_PIXELS, maxQualityMode: true },
+        { label: 'ultra-quality-pass', qualityTarget: 100, pixelLimit: ULTRA_QUALITY_TRACE_PIXELS, maxQualityMode: true }
+      ] : [
+        { label: 'standard-pass', qualityTarget: clampedQuality, pixelLimit: MAX_TRACE_PIXELS, maxQualityMode: false },
+        { label: 'max-quality-pass', qualityTarget: clampedQuality, pixelLimit: MAX_QUALITY_TRACE_PIXELS, maxQualityMode: true },
+        { label: 'ultra-quality-pass', qualityTarget: 100, pixelLimit: ULTRA_QUALITY_TRACE_PIXELS, maxQualityMode: true }
+      ];
+
+      const auditTrail = [];
+      let best = null;
+      for (const attempt of attempts) {
+        const result = await traceWithVTracer(image, attempt.qualityTarget, attempt.pixelLimit, attempt.maxQualityMode);
+        const entry = { ...attempt, score: result.audit.overall, result };
+        auditTrail.push(entry);
+        if (!best || entry.score > best.audit.overall) best = result;
+        if (entry.score >= MIN_ACCEPTABLE_AUDIT_MATCH) return { accepted: true, best: result, auditTrail };
+      }
+      return { accepted: false, best, auditTrail };
     }
 
     async function traceWithVTracer(image, qualityTarget, pixelLimit = MAX_TRACE_PIXELS, maxQualityMode = false) {
@@ -504,17 +520,18 @@
       const candidates = [];
       for (const config of candidateConfigs) {
         const svg = tracer.to_svg(pixels, width, height, config);
-        const similarity = await measureSvgSimilarity(svg, imageData, width, height);
-        candidates.push({ svg, similarity, config });
+        const audit = await measureSvgAudit(svg, imageData, width, height);
+        candidates.push({ svg, audit, config });
       }
 
-      candidates.sort((a, b) => b.similarity - a.similarity);
+      candidates.sort((a, b) => b.audit.overall - a.audit.overall);
       const best = candidates[0];
       const svg = best.svg;
       const pathCount = (svg.match(/<path\b/g) || []).length;
       return {
         svg,
-        meta: `<div>SVG size: ${width}x${height} viewBox</div><div>${pathCount} editable paths generated</div><div>${qualityTarget}% fidelity target</div><div>${maxQualityMode ? 'Max quality mode enabled' : 'Standard quality mode'}</div><div>Estimated photo match: ${Math.round(best.similarity * 100)}%</div>`
+        audit: best.audit,
+        meta: `<div>SVG size: ${width}x${height} viewBox</div><div>${pathCount} editable paths generated</div><div>${qualityTarget}% fidelity target</div><div>${maxQualityMode ? 'Max quality mode enabled' : 'Standard quality mode'}</div><div>Audited photo match: ${Math.round(best.audit.overall * 100)}%</div><div>Audit detail — color: ${Math.round(best.audit.color * 100)}%, luma: ${Math.round(best.audit.luma * 100)}%, edges: ${Math.round(best.audit.edge * 100)}%</div>`
       };
     }
 
@@ -557,26 +574,48 @@
       }
     }
 
-    async function measureSvgSimilarity(svg, sourceImageData, width, height) {
+    async function measureSvgAudit(svg, sourceImageData, width, height) {
       const rendered = await rasterizeSvg(svg, width, height);
       const source = sourceImageData.data;
       const target = rendered.data;
       const sampleStep = Math.max(1, Math.floor(Math.max(width, height) / 900));
-      let total = 0;
+      let colorTotal = 0;
+      let lumaTotal = 0;
+      let edgeTotal = 0;
       let count = 0;
-      for (let y = 0; y < height; y += sampleStep) {
-        for (let x = 0; x < width; x += sampleStep) {
+      for (let y = sampleStep; y < height - sampleStep; y += sampleStep) {
+        for (let x = sampleStep; x < width - sampleStep; x += sampleStep) {
           const i = (y * width + x) * 4;
           const dr = source[i] - target[i];
           const dg = source[i + 1] - target[i + 1];
           const db = source[i + 2] - target[i + 2];
-          total += dr * dr + dg * dg + db * db;
+          colorTotal += dr * dr + dg * dg + db * db;
+
+          const sourceLuma = 0.2126 * source[i] + 0.7152 * source[i + 1] + 0.0722 * source[i + 2];
+          const targetLuma = 0.2126 * target[i] + 0.7152 * target[i + 1] + 0.0722 * target[i + 2];
+          lumaTotal += Math.abs(sourceLuma - targetLuma);
+
+          const right = (y * width + (x + sampleStep)) * 4;
+          const down = ((y + sampleStep) * width + x) * 4;
+          const sourceLumaRight = 0.2126 * source[right] + 0.7152 * source[right + 1] + 0.0722 * source[right + 2];
+          const sourceLumaDown = 0.2126 * source[down] + 0.7152 * source[down + 1] + 0.0722 * source[down + 2];
+          const targetLumaRight = 0.2126 * target[right] + 0.7152 * target[right + 1] + 0.0722 * target[right + 2];
+          const targetLumaDown = 0.2126 * target[down] + 0.7152 * target[down + 1] + 0.0722 * target[down + 2];
+          const sourceEdge = Math.abs(sourceLumaRight - sourceLuma) + Math.abs(sourceLumaDown - sourceLuma);
+          const targetEdge = Math.abs(targetLumaRight - targetLuma) + Math.abs(targetLumaDown - targetLuma);
+          edgeTotal += Math.abs(sourceEdge - targetEdge);
           count++;
         }
       }
-      if (count === 0) return 0;
-      const rmse = Math.sqrt(total / (count * 3)) / 255;
-      return Math.max(0, 1 - rmse);
+      if (count === 0) return { overall: 0, color: 0, luma: 0, edge: 0 };
+      const colorRmse = Math.sqrt(colorTotal / (count * 3)) / 255;
+      const lumaDiff = lumaTotal / count / 255;
+      const edgeDiff = edgeTotal / count / 510;
+      const colorScore = Math.max(0, 1 - colorRmse);
+      const lumaScore = Math.max(0, 1 - lumaDiff);
+      const edgeScore = Math.max(0, 1 - edgeDiff);
+      const overall = Math.max(0, Math.min(1, colorScore * 0.55 + lumaScore * 0.3 + edgeScore * 0.15));
+      return { overall, color: colorScore, luma: lumaScore, edge: edgeScore };
     }
 
     async function rasterizeSvg(svg, width, height) {
@@ -640,6 +679,14 @@
 
     function updateMaxQualityNotice() {
       qualityWarning.classList.toggle('visible', maxQualityToggle.checked);
+    }
+
+    function formatAuditReport(auditTrail) {
+      if (!auditTrail.length) return '';
+      const lines = auditTrail.map(entry => {
+        return `<div>Audit ${entry.label}: ${Math.round(entry.score * 100)}% (${entry.maxQualityMode ? 'max mode' : 'standard mode'}, quality ${entry.qualityTarget}%, pixel budget ${entry.pixelLimit.toLocaleString()})</div>`;
+      });
+      return lines.join('');
     }
 
     function renderSvgPreview(svg) {
